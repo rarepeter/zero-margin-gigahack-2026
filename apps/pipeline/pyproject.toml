@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "secure-mom-pipeline"
+version = "0.1.0"
+description = "Mock baseline for the local Secure MOM pipeline"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "pydantic>=2.10,<3",
+  "python-multipart>=0.0.20,<1",
+  "uvicorn>=0.34,<1",
+]
+
+[project.scripts]
+pipeline-api = "secure_mom_pipeline.api:run"
+pipeline-worker = "secure_mom_pipeline.worker:run"
+pipeline-export-openapi = "secure_mom_pipeline.openapi_export:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/secure_mom_pipeline"]

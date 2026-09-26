@@ -1,0 +1,77 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Audio-processing ML API",
+    "version": "0.0.0-discovery",
+    "description": "Provisional asynchronous boundary only. TODO(discovery, TD-026): the audio ML owner must define every route and payload."
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "audioHealth",
+        "summary": "Check the provisional service boundary",
+        "responses": {
+          "200": {
+            "description": "TODO(discovery): define the health response",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "post": {
+        "operationId": "submitAudioJob",
+        "summary": "Submit local audio processing asynchronously",
+        "requestBody": {
+          "required": true,
+          "description": "TODO(discovery): define how the local input path and correlation data are represented",
+          "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+        },
+        "responses": {
+          "202": {
+            "description": "TODO(discovery): define asynchronous acknowledgement",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          }
+        }
+      }
+    },
+    "/jobs/{modelJobId}": {
+      "get": {
+        "operationId": "getAudioJobStatus",
+        "summary": "Poll provisional audio-processing status",
+        "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
+        "responses": {
+          "200": {
+            "description": "TODO(discovery): define statuses and failure representation",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          }
+        }
+      }
+    },
+    "/jobs/{modelJobId}/result": {
+      "get": {
+        "operationId": "getAudioJobResult",
+        "summary": "Read the provisional transcription result",
+        "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
+        "responses": {
+          "200": {
+            "description": "TODO(discovery): decide whether the result is a path or response payload",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "ModelJobId": {
+        "name": "modelJobId",
+        "in": "path",
+        "required": true,
+        "description": "TODO(discovery): define identifier constraints",
+        "schema": {"type": "string"}
+      }
+    }
+  },
+  "x-contract-status": "TODO(discovery): not an implementation contract"
+}

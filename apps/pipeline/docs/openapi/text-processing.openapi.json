@@ -1,0 +1,77 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Text-processing ML API",
+    "version": "0.0.0-discovery",
+    "description": "Provisional asynchronous boundary only. TODO(discovery, TD-026): the text ML owner must define every route and payload."
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "textHealth",
+        "summary": "Check the provisional service boundary",
+        "responses": {
+          "200": {
+            "description": "TODO(discovery): define the health response",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "post": {
+        "operationId": "submitTextJob",
+        "summary": "Submit local text processing asynchronously",
+        "requestBody": {
+          "required": true,
+          "description": "TODO(discovery): define how the local transcript path and correlation data are represented",
+          "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+        },
+        "responses": {
+          "202": {
+            "description": "TODO(discovery): define asynchronous acknowledgement",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          }
+        }
+      }
+    },
+    "/jobs/{modelJobId}": {
+      "get": {
+        "operationId": "getTextJobStatus",
+        "summary": "Poll provisional text-processing status",
+        "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
+        "responses": {
+          "200": {
+            "description": "TODO(discovery): define statuses and failure representation",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          }
+        }
+      }
+    },
+    "/jobs/{modelJobId}/result": {
+      "get": {
+        "operationId": "getTextJobResult",
+        "summary": "Read the provisional draft MoM result",
+        "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
+        "responses": {
+          "200": {
+            "description": "TODO(discovery, TD-024): decide whether the result is a path or response payload and define its schema",
+            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "ModelJobId": {
+        "name": "modelJobId",
+        "in": "path",
+        "required": true,
+        "description": "TODO(discovery): define identifier constraints",
+        "schema": {"type": "string"}
+      }
+    }
+  },
+  "x-contract-status": "TODO(discovery): not an implementation contract"
+}
