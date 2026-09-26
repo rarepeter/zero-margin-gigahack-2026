@@ -1,0 +1,24 @@
+name: secure-mom-mailpit
+
+services:
+  mailpit:
+    # Deliberately pin the version used in the offline demonstration. Upgrade
+    # only after the replacement image has been tested and preloaded locally.
+    image: axllent/mailpit:v1.31.2
+    container_name: secure-mom-mailpit
+    ports:
+      # Mailpit must be reachable only by services and browsers on this Mac.
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_DISABLE_VERSION_CHECK: "true"
+      MP_SMTP_DISABLE_RDNS: "true"
+      MP_SMTP_ALLOWED_RECIPIENTS: ${MAILPIT_ALLOWED_RECIPIENTS}
+      MP_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      MP_MAX_MESSAGES: "500"
+    volumes:
+      # Meeting-derived email content remains on the local machine. This
+      # directory is deliberately ignored by Git.
+      - ./runtime:/data
+    restart: "no"

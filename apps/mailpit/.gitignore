@@ -1,0 +1,8 @@
+# Local Mailpit SQLite database and captured emails. These can contain MoM data.
+runtime/
+
+# Machine-specific Compose configuration.
+.env
+
+# Local Python validation cache.
+__pycache__/
