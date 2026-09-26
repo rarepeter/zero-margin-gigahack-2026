@@ -3,7 +3,7 @@
   "info": {
     "title": "Audio-processing ML API",
     "version": "0.0.0-discovery",
-    "description": "Provisional asynchronous boundary only. TODO(discovery, TD-026): the audio ML owner must define every route and payload."
+    "description": "Provisional asynchronous submission boundary. After processing, the audio-to-text service pushes transcription bytes to the pipeline callback documented by the pipeline API. TODO(discovery, TD-026): confirm all routes, payloads, identifiers, and callback behavior."
   },
   "paths": {
     "/health": {
@@ -24,7 +24,7 @@
         "summary": "Submit local audio processing asynchronously",
         "requestBody": {
           "required": true,
-          "description": "TODO(discovery): define how the local input path and correlation data are represented",
+          "description": "TODO(discovery): define how the local input path, pipeline job ID, and transcription callback URL are represented",
           "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
         },
         "responses": {
@@ -50,13 +50,13 @@
     },
     "/jobs/{modelJobId}/result": {
       "get": {
+        "deprecated": true,
         "operationId": "getAudioJobResult",
-        "summary": "Read the provisional transcription result",
+        "summary": "Discovery placeholder not used by the implemented pipeline",
         "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
         "responses": {
-          "200": {
-            "description": "TODO(discovery): decide whether the result is a path or response payload",
-            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          "501": {
+            "description": "The implemented handoff uses the pipeline transcription callback instead"
           }
         }
       }

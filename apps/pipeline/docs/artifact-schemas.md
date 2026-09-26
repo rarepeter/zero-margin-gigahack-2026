@@ -13,6 +13,7 @@ runtime/jobs/<job-id>/
   input/
     meeting.<original-extension>
   transcript/
+    source.bin
     transcript.txt
   mom/
     draft.json
@@ -28,24 +29,42 @@ The state file is pipeline-owned. A provisional shape is:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "jobId": "01J...",
-  "status": "TRANSCRIBING",
-  "stage": "audio_processing",
+  "status": "AWAITING_REVIEW",
+  "stage": "review_ready",
   "createdAt": "2026-09-26T12:00:00Z",
   "updatedAt": "2026-09-26T12:01:12Z",
   "attempts": {
     "transcription": 1,
-    "momGeneration": 0
+    "momGeneration": 1
   },
   "modelJobs": {
     "audio": "audio-job-123",
-    "text": null
+    "text": "text-job-456"
   },
   "artifacts": {
     "audio": "input/meeting.wav",
-    "transcript": null,
-    "mom": null
+    "transcript": "transcript/transcript.txt",
+    "transcriptionSource": {
+      "path": "transcript/source.bin",
+      "mediaType": "application/json",
+      "byteCount": 1234,
+      "sha256": "<64 lowercase hexadecimal characters>"
+    },
+    "textInput": {
+      "path": "transcript/transcript.txt",
+      "mediaType": "text/plain; charset=utf-8",
+      "byteCount": 1234,
+      "sha256": "<64 lowercase hexadecimal characters>"
+    },
+    "mom": "mom/draft.json",
+    "momOutput": {
+      "path": "mom/draft.json",
+      "mediaType": "application/json",
+      "byteCount": 82,
+      "sha256": "<64 lowercase hexadecimal characters>"
+    }
   },
   "error": null
 }
@@ -76,21 +95,30 @@ The initial pipeline is expected to stop at `AWAITING_REVIEW`. The role of
   used to resolve filesystem locations.
 - Supported formats and maximum size are not yet agreed.
 
-## Transcript artifact
+## Transcription artifacts
 
-The accepted MVP representation is UTF-8 plain text in spoken order.
+The audio-to-text service pushes a small non-empty byte document. The pipeline
+atomically preserves those original bytes without assuming whether their
+textual content uses plain text, JSON, or CSV syntax:
+
+```text
+transcript/source.bin
+```
+
+The initial transformer strictly decodes the source as UTF-8 and writes every
+decoded character unchanged to:
 
 ```text
 transcript/transcript.txt
 ```
 
-Structured segments, timestamps, speaker identity, language labels, and
-confidence values are not required in the current contract. They may be added
-later through a versioned supplemental artifact without silently changing the
-meaning of the plain-text file.
+JSON remains JSON text and CSV remains CSV text inside this file; the current
+transformer does not extract fields, normalize content, or concatenate text.
+The text/MoM adapter uploads the artifact as multipart file `transcript.txt`
+with media type `text/plain; charset=utf-8`.
 
-An empty transcript is invalid unless a later explicit contract defines how a
-recording with no intelligible speech is represented.
+An empty source or invalid UTF-8 is rejected. A later transformer may implement
+format-aware extraction or concatenation without changing the ML adapters.
 
 ## Draft MoM artifact
 
@@ -105,15 +133,21 @@ frontend workstreams. Until then, the pipeline must treat the model-produced MoM
 as a JSON document, validate that it is syntactically valid, and retain schema
 version information when provided.
 
-A non-binding envelope for integration experiments is:
+A non-binding two-field envelope used by the development mock is:
 
 ```json
 {
-  "schemaVersion": "draft",
-  "jobId": "01J...",
-  "document": {}
+  "schemaVersion": "mock-v1",
+  "document": {
+    "content": "Mock Minutes of Meeting"
+  }
 }
 ```
+
+The mock sends this object to the pipeline callback after a configurable
+five-second delay. The pipeline validates that the result is a UTF-8 JSON object
+and atomically persists the original bytes before advancing to
+`AWAITING_REVIEW`.
 
 This envelope does not define clinical, financial, administrative, executive,
 operational, or crisis-meeting MoM fields and must not be presented as the

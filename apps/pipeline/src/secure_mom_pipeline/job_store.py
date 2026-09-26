@@ -5,13 +5,17 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import fcntl
+from contextlib import contextmanager
+from hashlib import sha256
 from pathlib import Path
+from typing import Iterator
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
 from .event_log import EventLog
-from .models import EventRecord, JobState
+from .models import ArtifactDescriptor, EventRecord, JobState
 
 
 class JobNotFoundError(FileNotFoundError):
@@ -88,6 +92,72 @@ class JobStore:
         if resolved.parent != self.jobs_root.resolve():
             raise JobNotFoundError("Job not found")
         return resolved
+
+    @contextmanager
+    def locked_job(self, job_id: str) -> Iterator[Path]:
+        """Serialize state/artifact mutations for one published job."""
+        directory = self.job_directory(job_id)
+        lock_path = directory / ".job.lock"
+        with lock_path.open("a+") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield directory
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _artifact_path(directory: Path, relative_path: str) -> Path:
+        candidate = Path(relative_path)
+        if candidate.is_absolute():
+            raise ValueError("Artifact paths must be relative")
+        resolved_directory = directory.resolve()
+        resolved = (resolved_directory / candidate).resolve()
+        if not resolved.is_relative_to(resolved_directory):
+            raise ValueError("The artifact path escapes its job")
+        return resolved
+
+    def write_artifact_at(
+        self,
+        directory: Path,
+        *,
+        relative_path: str,
+        data: bytes,
+        media_type: str,
+    ) -> ArtifactDescriptor:
+        target = self._artifact_path(directory, relative_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.parent / f".{target.name}-{uuid4()}.tmp"
+        digest = sha256(data).hexdigest()
+        try:
+            with temporary.open("xb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            written = temporary.read_bytes()
+            if len(written) != len(data) or sha256(written).hexdigest() != digest:
+                raise OSError("Artifact verification failed")
+            os.replace(temporary, target)
+            _fsync_directory(target.parent)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return ArtifactDescriptor(
+            path=relative_path,
+            media_type=media_type,
+            byte_count=len(data),
+            sha256=digest,
+        )
+
+    def read_artifact_at(
+        self,
+        directory: Path,
+        descriptor: ArtifactDescriptor,
+    ) -> bytes:
+        data = self._artifact_path(directory, descriptor.path).read_bytes()
+        if len(data) != descriptor.byte_count:
+            raise InvalidJobStateError("The artifact byte count does not match state")
+        if sha256(data).hexdigest() != descriptor.sha256:
+            raise InvalidJobStateError("The artifact digest does not match state")
+        return data
 
     def write_state_at(self, directory: Path, state: JobState) -> None:
         directory.mkdir(parents=True, exist_ok=True)

@@ -16,17 +16,17 @@ boundary module.
 
 ## Filesystem and artifacts
 
-- `TODO(discovery)`: choose runtime roots, filenames, and the job directory
-  layout. The byte/text services deliberately do not encode these decisions.
+- `TODO(discovery)`: choose final runtime roots. The implemented job layout uses
+  `transcript/source.bin` and `transcript/transcript.txt` provisionally.
 - `TODO(discovery, TD-024)`: define the draft MoM JSON schema.
 - `TODO(discovery)`: define persistence, atomic replacement, queueing, and
   recovery when those features enter implementation scope.
 
 ## ML services
 
-- `TODO(discovery, TD-026)`: obtain independent audio and text service routes,
-  payloads, identifiers, status values, error shapes, and result delivery rules
-  from their owners.
+- `TODO(discovery, TD-026)`: confirm both callback routes/headers and the
+  text-service multipart field, acknowledgement, status values, and errors with
+  their owners.
 - Replace the current mock audio pickup adapter only after the audio-service
   contract is agreed.
 - `TODO(discovery, TD-032)`: choose polling intervals, timeouts, and the error
@@ -38,5 +38,5 @@ boundary module.
 - `TODO(discovery)`: select machine-specific storage and log locations.
 - `TODO(discovery, TD-029)`: decide log format, rotation, retention, and strict
   content policy. The baseline logs only safe event names and mock states.
-- `TODO(discovery)`: replace the illustrative worker loop with persisted work
-  discovery and accepted state transitions.
+- `TODO(discovery)`: replace both development mocks with the real ML adapters
+  while retaining the persisted callback checkpoints.

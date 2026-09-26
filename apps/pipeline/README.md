@@ -10,9 +10,11 @@ review-ready draft MoM has been persisted as JSON.
 ```text
 audio upload
     -> local audio-processing service
-    -> transcript text
-    -> local text-processing service
-    -> draft MoM JSON
+    -> pushed transcription bytes
+    -> UTF-8 transcript.txt
+    -> text-processing service
+    -> pushed draft MoM JSON
+    -> review-ready persisted artifact
 ```
 
 This is a 48-hour hackathon MVP, not a production hospital system. Runtime must
@@ -21,15 +23,29 @@ been installed locally.
 
 ## Current status
 
-The job-creation path is functional through audio-service pickup. The API
-streams an uploaded recording into an atomically published filesystem job and
-returns `202 Accepted`. A separate worker discovers one queued job, passes its
-local path to a replaceable mock audio-service adapter, and persists a
-`TRANSCRIBING` checkpoint with a mock model job ID.
+The pipeline is functional from audio upload through a persisted draft MoM.
+The API atomically publishes the uploaded recording, and a separate worker
+passes its path to the replaceable mock audio adapter. The audio-to-text service
+then pushes transcription bytes to a correlated integration endpoint. The
+pipeline preserves those bytes, strictly decodes UTF-8 without interpreting
+JSON or CSV syntax, writes `transcript/transcript.txt`, and uploads it to the
+configured text/MoM service. The service pushes its result to a second correlated
+integration endpoint; the pipeline validates and atomically stores
+`mom/draft.json`, then advances to `AWAITING_REVIEW / review_ready`.
 
-The transcript, MoM, retry, readiness, and real ML integration paths remain
-mock or unimplemented. The audio-service contract is still a discovery item;
-the current adapter acknowledges a readable local file without processing it.
+In the runnable development flow, the mock audio adapter schedules that callback
+five seconds after accepting a recording and sends a deterministic UTF-8 mock
+transcription. If the worker restarts while a mock job is still waiting, it
+re-schedules the callback from the persisted checkpoint. The delay and callback
+base URL are configurable with `PIPELINE_MOCK_AUDIO_CALLBACK_DELAY_SECONDS` and
+`PIPELINE_MOCK_AUDIO_CALLBACK_BASE_URL`.
+
+The runtime text/MoM mock similarly accepts `transcript.txt`, waits five seconds,
+and pushes a two-field JSON object containing `schemaVersion` and `document`.
+Its delay and callback base URL are independently configurable. The persisted
+draft is available through `GET /api/v1/jobs/{jobId}/mom`.
+
+Manual retry and readiness remain mock or unimplemented.
 
 ## Documentation
 
@@ -48,16 +64,17 @@ provisional, deferred, or still open.
 - Python 3.12, FastAPI, Pydantic, Uvicorn, `uv`, and pytest
 - separate API and worker processes
 - filesystem-backed state and artifacts; no application database
-- one active pipeline job at a time
+- one local checkpoint mutation at a time; jobs waiting on ML services do not
+  block other jobs
 - asynchronous public API and asynchronous ML integrations
-- orchestration-side polling of both ML services
-- one adapter per ML service; the audio adapter is currently a mock because its
-  external contract is not agreed
+- pushed completion callbacks from both development ML mocks
+- one adapter per ML service; real-service HTTP adapter contracts remain
+  isolated from the worker
 - externally started ML services configured by local endpoint URL and port
 - direct MacBook execution first; Docker is not currently required
 
-These points describe the accepted target architecture. The current increment
-implements persistence and mock audio pickup, not the later ML stages.
+These points describe the accepted target architecture. The current pipeline
+stops after persisting a review-ready draft MoM JSON artifact.
 
 ## Local setup
 
@@ -98,11 +115,17 @@ pipeline preserves the bytes and does not decode or transcode them.
 curl -F 'audio=@meeting.mp3' http://127.0.0.1:8000/api/v1/jobs
 curl http://127.0.0.1:8000/api/v1/jobs/<job-id>
 uv run pipeline-worker --once
+curl --data-binary @transcription.json \
+  -H 'Content-Type: application/json' \
+  -H 'X-Audio-Model-Job-Id: <audio-model-job-id>' \
+  http://127.0.0.1:8000/api/v1/integrations/audio/jobs/<job-id>/transcription
 ```
 
 Jobs are stored below `PIPELINE_STORAGE_ROOT/jobs/<job-id>/`. Each contains
-`state.json`, a server-named audio artifact under `input/`, and an append-only
-`operations.ndjson` history. State and initial job publication are atomic.
+`state.json`, a server-named audio artifact under `input/`, source and `.txt`
+transcription checkpoints under `transcript/`, and an append-only
+`operations.ndjson` history. Completed jobs also contain `mom/draft.json`.
+State and artifact installation are atomic.
 
 ## Filesystem services
 
@@ -134,9 +157,11 @@ Run the automated suite with:
 uv run pytest
 ```
 
-The tests cover upload validation and persistence, atomic job visibility,
-status reads, event ordering, concurrent event appends, single-job worker
-behavior, mock ML pickup, and safe dispatch failure.
+The tests cover upload validation and persistence, callback correlation and
+idempotency, UTF-8 conversion with unchanged content, multipart `.txt` upload,
+both delayed mock callbacks, JSON validation and persistence, atomic checkpoints,
+restart recovery, status reads, event ordering, concurrent locking,
+non-blocking scheduling, transient retry, and safe failures.
 
 All source dependencies must be declared and installable before the offline
 demo. Model installation and operation remain the responsibility of the ML

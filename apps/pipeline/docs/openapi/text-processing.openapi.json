@@ -3,7 +3,7 @@
   "info": {
     "title": "Text-processing ML API",
     "version": "0.0.0-discovery",
-    "description": "Provisional asynchronous boundary only. TODO(discovery, TD-026): the text ML owner must define every route and payload."
+    "description": "Provisional asynchronous boundary. The adapter supplies a UTF-8 transcript.txt file and the service pushes draft MoM JSON to the pipeline callback. TODO(discovery, TD-026): confirm the final route, field name, acknowledgement, statuses, and callback contract."
   },
   "paths": {
     "/health": {
@@ -21,16 +21,41 @@
     "/jobs": {
       "post": {
         "operationId": "submitTextJob",
-        "summary": "Submit local text processing asynchronously",
+        "summary": "Submit transcript.txt for MoM processing asynchronously",
         "requestBody": {
           "required": true,
-          "description": "TODO(discovery): define how the local transcript path and correlation data are represented",
-          "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          "description": "Provisional adapter contract; correlation and idempotency are sent as headers by the pipeline.",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["transcript"],
+                "properties": {
+                  "transcript": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "UTF-8 transcript.txt with text/plain media type"
+                  }
+                }
+              }
+            }
+          }
         },
         "responses": {
           "202": {
-            "description": "TODO(discovery): define asynchronous acknowledgement",
-            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+            "description": "Provisional asynchronous acknowledgement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["modelJobId", "status"],
+                  "properties": {
+                    "modelJobId": {"type": "string", "minLength": 1},
+                    "status": {"type": "string", "const": "accepted"}
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -50,13 +75,13 @@
     },
     "/jobs/{modelJobId}/result": {
       "get": {
+        "deprecated": true,
         "operationId": "getTextJobResult",
-        "summary": "Read the provisional draft MoM result",
+        "summary": "Discovery placeholder not used by the implemented pipeline",
         "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
         "responses": {
-          "200": {
-            "description": "TODO(discovery, TD-024): decide whether the result is a path or response payload and define its schema",
-            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          "501": {
+            "description": "The implemented handoff uses the pipeline draft MoM callback instead"
           }
         }
       }

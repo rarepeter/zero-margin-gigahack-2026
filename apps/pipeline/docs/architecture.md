@@ -20,11 +20,15 @@ Local job filesystem <------------------------------+
    |                                                |
 Pipeline worker                                     |
    |                                                |
-   | adapter A: submit and poll                      |
+   | adapter A: submit                               |
    +----------> Audio-processing ML service --------+
+   |             | completed transcription bytes    |
+   |<------------+                                   |
    |                                                |
-   | adapter B: submit and poll                      |
+   | adapter B: multipart .txt submit                |
    +----------> Text-processing ML service ---------+
+   |             | completed draft MoM JSON          |
+   |<------------+                                   |
 ```
 
 All components run on the same physical MacBook. The ML services are started
@@ -47,11 +51,14 @@ service calls the other.
 - claim one queued job atomically;
 - resume from the latest valid persisted checkpoint;
 - invoke each ML service through its dedicated adapter;
-- poll each service until it completes, fails, or times out;
+- receive the audio service's completed transcription callback;
+- submit the resulting `.txt` file to the text service and receive its completed
+  draft MoM callback;
 - validate outputs before accepting a checkpoint;
 - persist transcript and MoM artifacts atomically;
 - record stage, timing, and safe error information; and
-- process no more than one job at a time.
+- advance one immediately actionable checkpoint at a time without letting jobs
+  waiting on an ML service block other jobs.
 
 ### ML adapters
 
@@ -59,7 +66,7 @@ The external contracts may differ. Each adapter presents a small common
 interface to the worker while translating to its service's actual endpoints and
 payloads.
 
-Conceptual adapter operations:
+Conceptual audio adapter operations:
 
 ```text
 health()
@@ -68,32 +75,46 @@ get_status(model_job_id) -> pending | running | completed | failed
 get_result(model_job_id) -> local path or response payload
 ```
 
+The implemented audio completion boundary is instead a pipeline callback that
+accepts the transcription as a small byte body correlated by pipeline and audio
+model job IDs. The text adapter accepts the persisted UTF-8 `.txt` path
+internally and translates it into a multipart upload.
+
 These are internal concepts, not a mandatory REST contract for ML owners.
 
-The current implementation stops after a mock audio adapter acknowledges a
-readable absolute local path. It returns a generated `mock-audio-...` job ID and
-does not read or process the recording. This keeps the orchestration boundary
-executable without presenting the discovery-only audio OpenAPI document as an
-agreed service contract.
+The current audio submission uses a mock adapter that acknowledges a readable
+absolute local path, returns a generated `mock-audio-...` job ID, and sends a
+deterministic transcription to the real pipeline callback after a configurable
+five-second delay. A restarted worker re-schedules the callback for a persisted
+mock job still at `audio_processing`. After the callback, the worker persists
+the source bytes, strictly decodes UTF-8 without parsing JSON or CSV, writes
+`transcript/transcript.txt`, and uploads that file to the text/MoM service.
 
-Both services must behave asynchronously: submission acknowledges work without
-holding the request open for the full inference duration, and completion is
-observed through polling.
+The development text/MoM mock returns a generated `mock-text-...` job ID and
+sends a deterministic two-field JSON document to the pipeline callback after a
+configurable five-second delay. Worker recovery re-schedules this callback for
+persisted jobs still at `text_processing`.
+
+Both services behave asynchronously: submission acknowledges work without
+holding the request open for inference, and each service pushes completion to a
+correlated pipeline callback.
 
 ## Artifact movement
 
-The pipeline owns the canonical job directory. ML requests refer to local files
-on the shared MacBook rather than uploading artifacts through HTTP.
+The pipeline owns the canonical job directory. The audio service reads the
+recording from the shared local filesystem. Intermediate transcription data is
+transferred over local HTTP.
 
 ```text
 recording file path -> audio service
-transcript file path -> text service
+transcription byte body -> pipeline callback
+transcript.txt multipart upload -> text service
+draft MoM JSON body -> pipeline callback
 ```
 
-The exact request and result shapes belong to their adapters. Each service must
-have operating-system permission to read its input path. If containerization is
-adopted later, shared-volume mounting and path translation must be designed and
-documented before it replaces this assumption.
+The exact request and result shapes belong to their adapters. The audio service
+must have operating-system permission to read its recording input path. The
+text service does not need access to the pipeline's filesystem.
 
 ## State and recovery
 
@@ -123,6 +144,12 @@ Initial job creation uses a stronger publication boundary: the API writes the
 audio, state, and initial events under the storage root's staging directory and
 atomically renames the complete directory into `jobs/`. The worker scans only
 published job directories.
+
+The worker may have multiple jobs in externally active states. On each pass it
+re-schedules any required mock callbacks, advances the oldest actionable
+transcription or text-dispatch checkpoint, or claims the oldest queued job.
+Per-job locks serialize API and worker mutations; an unrelated job waiting in
+`audio_processing` or `GENERATING_MOM` does not occupy a global processing slot.
 
 ## Retry behavior
 

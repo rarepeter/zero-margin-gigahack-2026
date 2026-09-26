@@ -21,8 +21,10 @@ next stage.
 - Do not add cloud inference, external storage, external telemetry, or external
   SMTP dependencies.
 - Long-running work must not execute in the frontend-facing request lifecycle.
-- Treat both ML integrations as asynchronous and poll for completion.
-- Process at most one pipeline job at a time for the MVP.
+- Treat both ML integrations as asynchronous; current completion artifacts are
+  delivered through correlated pipeline callbacks.
+- Keep mutations serialized per job, but do not let a job waiting on an ML
+  service prevent other queued or actionable jobs from advancing.
 - Persist state changes atomically and preserve valid checkpoints across
   process restarts.
 - Keep runtime recordings, transcripts, MoM output, logs, secrets, model

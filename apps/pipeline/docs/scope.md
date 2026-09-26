@@ -11,15 +11,19 @@ Last updated: 26 September 2026
 - A separate worker process that claims and executes one job at a time.
 - A dedicated adapter for the audio-processing ML service.
 - A dedicated adapter for the text-processing ML service.
-- Asynchronous submission and status polling for both ML services.
-- Passing local filesystem paths to ML services on the same MacBook.
-- Validation and persistence of a plain-text transcript.
+- Asynchronous submission to both ML services and correlated completion
+  callbacks for the transcription and draft MoM artifacts.
+- Passing the recording path to the audio service and uploading a `.txt` file to
+  the text/MoM service.
+- Atomic persistence of source transcription bytes and a UTF-8 plain-text copy.
 - Validation and persistence of a draft MoM JSON document.
 - Read endpoints for job status and completed artifacts.
 - Configurable local ML endpoint URLs, ports, polling intervals, and timeouts.
 - Health and readiness checks needed to verify the local pipeline before a demo.
 - Recovery from process interruption using persisted state and valid artifacts.
 - A single automatic retry for transient ML connection failures.
+- Non-blocking job scheduling: jobs waiting on an ML callback or result do not
+  prevent other queued or actionable jobs from advancing.
 - A manual retry operation from the last valid checkpoint, subject to the draft
   API being confirmed.
 - Local development, tests, dependency manifests, and offline setup guidance for
@@ -45,7 +49,9 @@ Those editing and export functions are not pipeline responsibilities.
 - User accounts, authentication, authorization, and multi-user workflows.
 - Cancellation of running jobs.
 - Job deletion and automatic retention cleanup.
-- Parallel or overlapping job execution.
+- Parallel execution inside the pipeline worker; it advances one local
+  checkpoint at a time, although multiple jobs may overlap while external ML
+  services are processing them.
 - A database, Redis, RabbitMQ, Kafka, or another external queue.
 - Docker or Docker Compose as a current requirement.
 - Cloud services, external inference, external telemetry, or runtime internet

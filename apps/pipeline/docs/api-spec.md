@@ -65,19 +65,69 @@ interval should become configuration rather than a hard-coded contract.
 
 This endpoint now reads the persisted job state. Unknown IDs return `404`.
 
+### `POST /api/v1/integrations/audio/jobs/{jobId}/transcription`
+
+Local integration endpoint used by the audio-to-text service after it finishes
+processing. Send the transcription document as the raw request body and the
+previously issued audio model job ID in `X-Audio-Model-Job-Id`. The body may
+contain UTF-8 plain, JSON, or CSV text; `Content-Type` is preserved as source
+metadata. The default maximum is 10 MiB and is configurable.
+
+The first durable receipt returns `202 Accepted`:
+
+```json
+{
+  "jobId": "01J...",
+  "status": "TRANSCRIBING",
+  "stage": "transcription_received",
+  "replayed": false
+}
+```
+
+An identical replay returns `200` with `replayed: true`. A different body for an
+already persisted transcription, a mismatched audio model job ID, or a job that
+is not expecting a transcription returns `409`. Empty and oversized documents
+return `400` and `413`, respectively. This is an ML integration route, not a
+frontend operation.
+
+### `POST /api/v1/integrations/text/jobs/{jobId}/mom`
+
+Local integration endpoint used by the text/MoM service after it finishes.
+Send a UTF-8 JSON object as the raw `application/json` body and the previously
+issued text model job ID in `X-Text-Model-Job-Id`. The default maximum is 10 MiB
+and is configurable.
+
+The first durable receipt returns `202 Accepted`:
+
+```json
+{
+  "jobId": "01J...",
+  "status": "AWAITING_REVIEW",
+  "stage": "review_ready",
+  "replayed": false
+}
+```
+
+An identical replay returns `200`; a conflicting body, mismatched model job ID,
+or wrong job state returns `409`. Invalid JSON returns `400`, an unsupported
+media type returns `415`, and an oversized document returns `413`.
+
 ### `GET /api/v1/jobs/{jobId}/transcript`
 
-Return the accepted plain-text transcript after transcription succeeds.
+Return the persisted UTF-8 `.txt` transcript after transformation succeeds.
 
 Proposed content type: `text/plain; charset=utf-8`.
 
 Before the artifact exists, return a structured JSON error with an appropriate
-HTTP status rather than an empty transcript.
+HTTP status rather than an empty transcript. This read route remains a mock in
+the current increment.
 
 ### `GET /api/v1/jobs/{jobId}/mom`
 
 Return the persisted draft MoM JSON after text processing succeeds. The exact
 schema is intentionally not final; see `artifact-schemas.md`.
+
+Before the artifact exists, this endpoint returns `409 ARTIFACT_NOT_READY`.
 
 ### `POST /api/v1/jobs/{jobId}/retry`
 

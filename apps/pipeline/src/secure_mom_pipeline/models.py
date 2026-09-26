@@ -21,6 +21,8 @@ class PipelineModel(BaseModel):
 class JobStatus(StrEnum):
     QUEUED = "QUEUED"
     TRANSCRIBING = "TRANSCRIBING"
+    GENERATING_MOM = "GENERATING_MOM"
+    AWAITING_REVIEW = "AWAITING_REVIEW"
     FAILED = "FAILED"
 
 
@@ -34,10 +36,23 @@ class ModelJobs(PipelineModel):
     text: str | None = None
 
 
+class ArtifactDescriptor(PipelineModel):
+    path: str = Field(min_length=1)
+    media_type: str = Field(alias="mediaType", min_length=1)
+    byte_count: int = Field(alias="byteCount", ge=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class JobArtifacts(PipelineModel):
     audio: str
     transcript: str | None = None
     mom: str | None = None
+    transcription_source: ArtifactDescriptor | None = Field(
+        default=None,
+        alias="transcriptionSource",
+    )
+    text_input: ArtifactDescriptor | None = Field(default=None, alias="textInput")
+    mom_output: ArtifactDescriptor | None = Field(default=None, alias="momOutput")
 
 
 class JobError(PipelineModel):
@@ -47,7 +62,7 @@ class JobError(PipelineModel):
 
 
 class JobState(PipelineModel):
-    schema_version: int = Field(default=1, alias="schemaVersion")
+    schema_version: int = Field(default=2, alias="schemaVersion")
     job_id: str = Field(alias="jobId")
     status: JobStatus
     stage: str
@@ -120,3 +135,31 @@ class EventRecord(PipelineModel):
 class AudioSubmission(PipelineModel):
     model_job_id: str = Field(alias="modelJobId", min_length=1)
     status: Literal["accepted"]
+
+
+class TranscriptionSource(PipelineModel):
+    data: bytes
+    media_type: str = Field(alias="mediaType", min_length=1)
+
+
+class TextDocument(PipelineModel):
+    text: str
+
+
+class TextSubmission(PipelineModel):
+    model_job_id: str = Field(alias="modelJobId", min_length=1)
+    status: Literal["accepted"]
+
+
+class TranscriptionReceipt(PipelineModel):
+    job_id: str = Field(alias="jobId")
+    status: JobStatus
+    stage: str
+    replayed: bool
+
+
+class MomReceipt(PipelineModel):
+    job_id: str = Field(alias="jobId")
+    status: JobStatus
+    stage: str
+    replayed: bool

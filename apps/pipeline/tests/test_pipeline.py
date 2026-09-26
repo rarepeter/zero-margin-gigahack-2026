@@ -1,18 +1,36 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
+from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from secure_mom_pipeline import api
 from secure_mom_pipeline.audio_service import MockAudioService
 from secure_mom_pipeline.event_log import EventLog
+from secure_mom_pipeline.intermediate_transformer import (
+    IntermediateTransformationError,
+    Utf8IntermediateTransformer,
+)
 from secure_mom_pipeline.job_store import JobStore
-from secure_mom_pipeline.models import JobStatus, utc_now
+from secure_mom_pipeline.models import (
+    JobStatus,
+    TextSubmission,
+    TranscriptionSource,
+    utc_now,
+)
+from secure_mom_pipeline.text_service import (
+    HttpTextService,
+    MockTextService,
+    TextConnectionError,
+    TextProtocolError,
+)
 from secure_mom_pipeline.worker import process_one
 
 
@@ -41,6 +59,67 @@ def upload(
         "/api/v1/jobs",
         files={"audio": (name, content, media_type)},
     )
+
+
+def dispatch_audio(store: JobStore, job_id: str) -> str:
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.dispatch-audio"),
+    )
+    model_job_id = store.read_state(job_id).model_jobs.audio
+    assert model_job_id is not None
+    return model_job_id
+
+
+def push_transcription(
+    client: TestClient,
+    job_id: str,
+    audio_model_job_id: str,
+    content: bytes,
+    media_type: str = "application/octet-stream",
+):
+    return client.post(
+        f"/api/v1/integrations/audio/jobs/{job_id}/transcription",
+        content=content,
+        headers={
+            "Content-Type": media_type,
+            "X-Audio-Model-Job-Id": audio_model_job_id,
+        },
+    )
+
+
+def push_mom(
+    client: TestClient,
+    job_id: str,
+    text_model_job_id: str,
+    content: bytes,
+    media_type: str = "application/json",
+):
+    return client.post(
+        f"/api/v1/integrations/text/jobs/{job_id}/mom",
+        content=content,
+        headers={
+            "Content-Type": media_type,
+            "X-Text-Model-Job-Id": text_model_job_id,
+        },
+    )
+
+
+class RecordingTextService:
+    def __init__(self) -> None:
+        self.submissions: list[tuple[str, str, bytes]] = []
+
+    def submit(
+        self,
+        pipeline_job_id: str,
+        text_path: Path,
+        idempotency_key: str,
+    ) -> TextSubmission:
+        self.submissions.append(
+            (pipeline_job_id, idempotency_key, text_path.read_bytes())
+        )
+        return TextSubmission(model_job_id="text-job-1", status="accepted")
 
 
 def test_upload_persists_bytes_state_and_ordered_events(
@@ -181,7 +260,7 @@ def test_worker_dispatches_to_mock_service_and_persists_checkpoint(
     ]
 
 
-def test_worker_does_not_dispatch_second_job_while_one_is_active(
+def test_waiting_transcription_does_not_block_second_job(
     client: TestClient, store: JobStore
 ) -> None:
     first = upload(client, content=b"first").json()["jobId"]
@@ -189,10 +268,10 @@ def test_worker_does_not_dispatch_second_job_while_one_is_active(
     logger = logging.getLogger("test.worker.single")
 
     assert process_one(store, MockAudioService(), logger) is True
-    assert process_one(store, MockAudioService(), logger) is False
+    assert process_one(store, MockAudioService(), logger) is True
 
     assert store.read_state(first).status == JobStatus.TRANSCRIBING
-    assert store.read_state(second).status == JobStatus.QUEUED
+    assert store.read_state(second).status == JobStatus.TRANSCRIBING
 
 
 def test_worker_records_safe_failure_when_audio_is_missing(
@@ -232,3 +311,572 @@ def test_event_log_appends_concurrently_and_reads_from_offset(tmp_path: Path) ->
     records = event_log.read()
     assert [record.offset for record in records] == list(range(12))
     assert [record.offset for record in event_log.read(from_offset=9)] == [9, 10, 11]
+
+
+@pytest.mark.parametrize(
+    "media_type,source",
+    [
+        ("text/plain", "Bună ziua\nNext line"),
+        ("application/json", '{"transcript":"Bună ziua"}'),
+        ("text/csv", "speaker,text\nAna,Bună ziua"),
+    ],
+)
+def test_transcription_is_preserved_as_txt_and_dispatched(
+    client: TestClient,
+    store: JobStore,
+    media_type: str,
+    source: str,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+
+    received = push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        source.encode("utf-8"),
+        media_type,
+    )
+
+    assert received.status_code == 202
+    assert received.json() == {
+        "jobId": job_id,
+        "status": "TRANSCRIBING",
+        "stage": "transcription_received",
+        "replayed": False,
+    }
+    source_path = store.job_directory(job_id) / "transcript/source.bin"
+    assert source_path.read_bytes() == source.encode("utf-8")
+
+    text_service = RecordingTextService()
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.transcription-flow"),
+        text_service,
+    )
+
+    state = store.read_state(job_id)
+    assert state.status == JobStatus.GENERATING_MOM
+    assert state.stage == "text_processing"
+    assert state.model_jobs.text == "text-job-1"
+    assert state.attempts.mom_generation == 1
+    assert state.artifacts.transcript == "transcript/transcript.txt"
+    assert state.artifacts.text_input is not None
+    assert state.artifacts.text_input.media_type == "text/plain; charset=utf-8"
+    transcript_path = store.job_directory(job_id) / state.artifacts.transcript
+    assert transcript_path.read_text(encoding="utf-8") == source
+    assert text_service.submissions == [
+        (job_id, f"{job_id}:mom-generation:1", source.encode("utf-8"))
+    ]
+    assert client.get(f"/api/v1/jobs/{job_id}").json()["artifacts"] == {
+        "transcriptAvailable": True,
+        "momAvailable": False,
+    }
+
+
+def test_transcription_push_is_idempotent_and_rejects_conflicts(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+
+    wrong_model = push_transcription(client, job_id, "wrong", b"hello")
+    assert wrong_model.status_code == 409
+    assert wrong_model.json()["error"]["code"] == "TRANSCRIPTION_CORRELATION_MISMATCH"
+
+    first = push_transcription(client, job_id, audio_model_job_id, b"hello")
+    replay = push_transcription(client, job_id, audio_model_job_id, b"hello")
+    conflict = push_transcription(client, job_id, audio_model_job_id, b"different")
+
+    assert first.status_code == 202
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "TRANSCRIPTION_CONFLICT"
+    assert (store.job_directory(job_id) / "transcript/source.bin").read_bytes() == b"hello"
+
+
+def test_transcription_push_rejects_empty_and_oversized_documents(
+    client: TestClient,
+    store: JobStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+
+    empty = push_transcription(client, job_id, audio_model_job_id, b"")
+    assert empty.status_code == 400
+    assert empty.json()["error"]["code"] == "EMPTY_TRANSCRIPTION"
+
+    monkeypatch.setattr(api, "MAX_TRANSCRIPTION_BYTES", 3)
+    oversized = push_transcription(client, job_id, audio_model_job_id, b"four")
+    assert oversized.status_code == 413
+    assert oversized.json()["error"]["code"] == "TRANSCRIPTION_TOO_LARGE"
+    assert store.read_state(job_id).stage == "audio_processing"
+
+
+def test_invalid_utf8_fails_transformation_without_losing_source(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        b"\xff\xfe",
+    ).status_code == 202
+
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.invalid-utf8"),
+    )
+
+    state = store.read_state(job_id)
+    assert state.status == JobStatus.FAILED
+    assert state.stage == "transcript_transform"
+    assert state.error is not None
+    assert state.error.code == "TRANSCRIPT_TRANSFORM_FAILED"
+    assert (store.job_directory(job_id) / "transcript/source.bin").read_bytes() == b"\xff\xfe"
+    assert not (store.job_directory(job_id) / "transcript/transcript.txt").exists()
+
+
+def test_utf8_transformer_preserves_decoded_characters() -> None:
+    source = '{"speaker":"Ana","text":"Bună"}\n'
+    result = Utf8IntermediateTransformer().transform(
+        TranscriptionSource(
+            data=source.encode("utf-8"),
+            media_type="application/json",
+        )
+    )
+    assert result.text == source
+
+    with pytest.raises(IntermediateTransformationError):
+        Utf8IntermediateTransformer().transform(
+            TranscriptionSource(data=b"\xff", media_type="application/octet-stream")
+        )
+
+
+def test_text_dispatch_retries_one_transient_connection_failure(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    class FlakyTextService(RecordingTextService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def submit(
+            self,
+            pipeline_job_id: str,
+            text_path: Path,
+            idempotency_key: str,
+        ) -> TextSubmission:
+            self.calls += 1
+            if self.calls == 1:
+                raise TextConnectionError("temporary")
+            return super().submit(pipeline_job_id, text_path, idempotency_key)
+
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        b"transcript",
+    ).status_code == 202
+    service = FlakyTextService()
+
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.retry"),
+        service,
+    )
+
+    assert service.calls == 2
+    assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
+    assert "text.dispatch.retried" in [
+        event.event_type for event in store.read_events(job_id)
+    ]
+
+
+def test_worker_resumes_from_persisted_text_input_checkpoint(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    class SimulatedStopTextService:
+        def submit(
+            self,
+            pipeline_job_id: str,
+            text_path: Path,
+            idempotency_key: str,
+        ) -> TextSubmission:
+            del pipeline_job_id, text_path, idempotency_key
+            raise KeyboardInterrupt("simulated process stop")
+
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        b"checkpoint",
+    ).status_code == 202
+
+    with pytest.raises(KeyboardInterrupt, match="simulated process stop"):
+        process_one(
+            store,
+            MockAudioService(),
+            logging.getLogger("test.stop"),
+            SimulatedStopTextService(),
+        )
+    assert store.read_state(job_id).stage == "text_input_ready"
+
+    service = RecordingTextService()
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.resume"),
+        service,
+    )
+    assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
+    assert service.submissions[0][2] == b"checkpoint"
+
+
+def test_http_text_service_uploads_transcript_as_multipart_txt(tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = request.headers
+        captured["body"] = request.content
+        return httpx.Response(
+            202,
+            json={"modelJobId": "text-http-1", "status": "accepted"},
+        )
+
+    text_path = tmp_path / "transcript.txt"
+    text_path.write_text("Bună", encoding="utf-8")
+    service = HttpTextService(
+        "http://text.local",
+        "/jobs",
+        1.0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = service.submit("pipeline-job", text_path.resolve(), "stable-key")
+
+    assert result.model_job_id == "text-http-1"
+    headers = captured["headers"]
+    assert isinstance(headers, httpx.Headers)
+    assert headers["x-pipeline-job-id"] == "pipeline-job"
+    assert headers["idempotency-key"] == "stable-key"
+    assert headers["content-type"].startswith("multipart/form-data; boundary=")
+    body = captured["body"]
+    assert isinstance(body, bytes)
+    assert b'name="transcript"; filename="transcript.txt"' in body
+    assert b"text/plain; charset=utf-8" in body
+    assert "Bună".encode("utf-8") in body
+
+
+def test_job_lock_serializes_mutations(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    attempted = Event()
+    entered = Event()
+
+    def acquire() -> None:
+        attempted.set()
+        with store.locked_job(job_id):
+            entered.set()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with store.locked_job(job_id):
+            future = executor.submit(acquire)
+            assert attempted.wait(timeout=1)
+            assert not entered.wait(timeout=0.05)
+        future.result(timeout=1)
+        assert entered.is_set()
+
+
+def test_failed_atomic_artifact_replace_preserves_previous_file(
+    client: TestClient,
+    store: JobStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    directory = store.job_directory(job_id)
+    store.write_artifact_at(
+        directory,
+        relative_path="transcript/source.bin",
+        data=b"original",
+        media_type="application/octet-stream",
+    )
+
+    def fail_replace(source: Path, destination: Path) -> None:
+        del source, destination
+        raise OSError("simulated artifact replace failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated artifact replace failure"):
+        store.write_artifact_at(
+            directory,
+            relative_path="transcript/source.bin",
+            data=b"replacement",
+            media_type="application/octet-stream",
+        )
+
+    assert (directory / "transcript/source.bin").read_bytes() == b"original"
+    assert not list((directory / "transcript").glob(".source.bin-*.tmp"))
+
+
+def test_worker_resumes_transcription_received_after_store_restart(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        b"restart checkpoint",
+    ).status_code == 202
+
+    restarted_store = JobStore(store.root)
+    service = RecordingTextService()
+    assert process_one(
+        restarted_store,
+        MockAudioService(),
+        logging.getLogger("test.source-restart"),
+        service,
+    )
+    assert restarted_store.read_state(job_id).status == JobStatus.GENERATING_MOM
+    assert service.submissions[0][2] == b"restart checkpoint"
+
+
+def test_http_text_service_maps_rejection_and_invalid_acknowledgement(
+    tmp_path: Path,
+) -> None:
+    text_path = tmp_path / "transcript.txt"
+    text_path.write_text("transcript", encoding="utf-8")
+
+    rejected = HttpTextService(
+        "http://text.local",
+        "/jobs",
+        1.0,
+        transport=httpx.MockTransport(lambda request: httpx.Response(400)),
+    )
+    with pytest.raises(TextProtocolError, match="rejected"):
+        rejected.submit("job", text_path.resolve(), "key")
+
+    invalid = HttpTextService(
+        "http://text.local",
+        "/jobs",
+        1.0,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(202, json={"unexpected": True})
+        ),
+    )
+    with pytest.raises(TextProtocolError, match="invalid acknowledgement"):
+        invalid.submit("job", text_path.resolve(), "key")
+
+
+def test_generating_job_does_not_block_next_queued_job(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    first = upload(client, content=b"first").json()["jobId"]
+    first_audio_job = dispatch_audio(store, first)
+    assert push_transcription(
+        client,
+        first,
+        first_audio_job,
+        b"first transcript",
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.first-text"),
+        RecordingTextService(),
+    )
+    second = upload(client, content=b"second").json()["jobId"]
+
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.generating-blocks"),
+        RecordingTextService(),
+    )
+    assert store.read_state(first).status == JobStatus.GENERATING_MOM
+    assert store.read_state(second).status == JobStatus.TRANSCRIBING
+
+
+def test_mock_audio_service_pushes_transcription_callback_after_delay(
+    tmp_path: Path,
+) -> None:
+    received = Event()
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        received.set()
+        return httpx.Response(202)
+
+    audio_path = tmp_path / "meeting.mp3"
+    audio_path.write_bytes(b"mock audio")
+    service = MockAudioService(
+        "http://pipeline.local/api/v1/integrations/audio/jobs/{job_id}/transcription",
+        callback_delay_seconds=0.01,
+        transport=httpx.MockTransport(handler),
+    )
+
+    submission = service.submit("pipeline-job", audio_path.resolve())
+
+    assert received.wait(timeout=1)
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.url.path.endswith(
+        "/integrations/audio/jobs/pipeline-job/transcription"
+    )
+    assert request.headers["x-audio-model-job-id"] == submission.model_job_id
+    assert request.headers["content-type"] == "text/plain; charset=utf-8"
+    assert request.content == b"Mock transcription for pipeline job pipeline-job."
+
+    service.ensure_callback("pipeline-job", submission.model_job_id)
+    assert len(requests) == 1
+
+
+def test_mom_callback_persists_json_and_advances_to_review(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        b"meeting transcript",
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.mom-result"),
+        RecordingTextService(),
+    )
+    assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
+
+    payload = b'{"schemaVersion":"mock-v1","document":{"content":"Mock Minutes"}}'
+    received = push_mom(client, job_id, "text-job-1", payload)
+
+    assert received.status_code == 202
+    assert received.json() == {
+        "jobId": job_id,
+        "status": "AWAITING_REVIEW",
+        "stage": "review_ready",
+        "replayed": False,
+    }
+    state = store.read_state(job_id)
+    assert state.status == JobStatus.AWAITING_REVIEW
+    assert state.stage == "review_ready"
+    assert state.artifacts.mom == "mom/draft.json"
+    assert state.artifacts.mom_output is not None
+    assert (store.job_directory(job_id) / "mom/draft.json").read_bytes() == payload
+    assert client.get(f"/api/v1/jobs/{job_id}").json()["artifacts"] == {
+        "transcriptAvailable": True,
+        "momAvailable": True,
+    }
+    assert client.get(f"/api/v1/jobs/{job_id}/mom").json() == json.loads(payload)
+
+    replay = push_mom(client, job_id, "text-job-1", payload)
+    conflict = push_mom(client, job_id, "text-job-1", b'{"different":true}')
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "MOM_CONFLICT"
+
+
+def test_mom_callback_validates_contract(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        b"meeting transcript",
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.mom-validation"),
+        RecordingTextService(),
+    )
+
+    wrong_model = push_mom(client, job_id, "wrong", b'{"a":1,"b":2}')
+    invalid_json = push_mom(client, job_id, "text-job-1", b"not json")
+    wrong_shape = push_mom(client, job_id, "text-job-1", b"[]")
+    wrong_media = push_mom(
+        client,
+        job_id,
+        "text-job-1",
+        b'{"a":1,"b":2}',
+        "text/plain",
+    )
+
+    assert wrong_model.status_code == 409
+    assert wrong_model.json()["error"]["code"] == "MOM_CORRELATION_MISMATCH"
+    assert invalid_json.status_code == 400
+    assert invalid_json.json()["error"]["code"] == "INVALID_MOM_JSON"
+    assert wrong_shape.status_code == 400
+    assert wrong_shape.json()["error"]["code"] == "INVALID_MOM_JSON"
+    assert wrong_media.status_code == 415
+    assert wrong_media.json()["error"]["code"] == "UNSUPPORTED_MOM_MEDIA_TYPE"
+    assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
+
+
+def test_mock_text_service_pushes_two_field_mom_callback_after_delay(
+    tmp_path: Path,
+) -> None:
+    received = Event()
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        received.set()
+        return httpx.Response(202)
+
+    text_path = tmp_path / "transcript.txt"
+    text_path.write_text("meeting transcript", encoding="utf-8")
+    service = MockTextService(
+        "http://pipeline.local/api/v1/integrations/text/jobs/{job_id}/mom",
+        callback_delay_seconds=0.01,
+        transport=httpx.MockTransport(handler),
+    )
+
+    submission = service.submit("pipeline-job", text_path.resolve(), "key")
+
+    assert received.wait(timeout=1)
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.url.path.endswith("/integrations/text/jobs/pipeline-job/mom")
+    assert request.headers["x-text-model-job-id"] == submission.model_job_id
+    assert request.headers["content-type"] == "application/json"
+    document = json.loads(request.content)
+    assert list(document) == ["schemaVersion", "document"]
+    assert document == {
+        "schemaVersion": "mock-v1",
+        "document": {"content": "Mock Minutes of Meeting"},
+    }
+
+    service.ensure_callback("pipeline-job", submission.model_job_id)
+    assert len(requests) == 1
