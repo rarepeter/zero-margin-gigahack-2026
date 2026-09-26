@@ -1,6 +1,11 @@
 # Speechbench
 
-Upload a recording and compare full transcripts from OpenRouter models and a local Moldovan Romanian Whisper model. Runs, request settings, raw responses, and transcripts persist locally in SQLite.
+Two benchmarks for the Secure MoM pipeline, in two tabs:
+
+- **Speech to text** compares full transcripts of an uploaded recording from OpenRouter models and a local Moldovan Romanian Whisper model.
+- **Minutes of Meeting** scores open-weight text models on turning raw multilingual transcripts into structured Romanian minutes. Claude Opus grades each result against a hidden answer key. See [Compare MoM models](#compare-mom-models).
+
+Runs, request settings, raw responses, and results persist locally in SQLite.
 
 ## Start the app
 
@@ -72,6 +77,20 @@ To test timestamps, enable **Request timestamps**. Local Whisper returns clickab
 Context and vocabulary apply to local Whisper and hosted Whisper when Groq serves the request. These are short recognition hints, not chat system prompts. Keep them concise. Local Whisper reports an error if they exceed its 223-text-token budget. Clear both fields to compare against a run without hints. A custom Groq prompt in **Advanced options** overrides both fields for hosted Whisper.
 
 The prompt is saved with each run, appears under **Settings used for this run**, and is included in JSON exports. **Run again** copies the saved prompt. Older runs retain an empty context; select **Use hospital preset** when rerunning them to add it. See [the context research and model limits](docs/benchmark.md#hospital-context-prompt).
+
+## Compare MoM models
+
+The judge runs through the [Claude Code CLI](https://docs.claude.com/en/docs/claude-code), which must be installed and signed in. The server finds `claude` on `PATH`. Set `CLAUDE_BIN` in `.env` if the command is elsewhere. Model calls use `OPENROUTER_API_KEY`.
+
+1. Open **Minutes of Meeting** in the sidebar.
+2. Select transcripts and models. By default, all 13 fictional transcripts and all nine models are selected. Select **View** to read a transcript and its hidden answer key.
+3. Select **Run benchmark**. For each transcript, the judge writes reference minutes. Every model writes its own minutes from the same prompt, and the judge grades each result blind.
+4. Read the matrix as cells finish. Select a cell to see the graded answer key, hallucinations, quality ratings, the model's minutes, and the judge's reference.
+5. Select **Retry failed** to repeat only the failed steps. Select **Export JSON** to save the full run, including its frozen transcripts, prompts, and raw responses.
+
+The **Local** models, Muse Glimmer 30B at 4-bit and 8-bit, run on this Mac through llama.cpp, one model in memory at a time. Each local generation takes several minutes. They are not selected by default. See [Local models](docs/mom-benchmark.md#local-models) for downloads and `.env` paths.
+
+A full run makes 117 OpenRouter calls and 130 judge calls. With three concurrent judge calls, it takes about 30–60 minutes. OpenRouter charges are a few dollars at most. Judge calls use your Claude plan. Use fictional data only, because both services receive the transcripts. See [the MoM benchmark design](docs/mom-benchmark.md) for scoring, model selection, and limits. See [the transcript guide](mom/README.md) to add meetings.
 
 ## Verify changes
 

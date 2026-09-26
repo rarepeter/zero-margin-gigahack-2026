@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { buildRequest, redact, transcribe, TranscriptionError } from './openrouter';
+import { buildRequest, redact, transcribe, UpstreamError } from './openrouter';
 import type { Store } from './store';
 import { MODELS } from '../shared/models';
 import { buildLocalRequest, type LocalTranscriber } from './local-whisper';
@@ -56,9 +56,9 @@ export class Queue {
           const message = String(redact(error instanceof Error ? error.message : 'Transcription failed.', this.apiKey()));
           this.store.saveChunk(result.id, {
             index: chunk.index, start: chunk.start, end: chunk.end, request, status: 'failed', text: '', error: message,
-            response: error instanceof TranscriptionError ? error.body : null,
-            generationId: error instanceof TranscriptionError ? error.generationId : null,
-            latencyMs: error instanceof TranscriptionError ? error.latencyMs : Math.round(performance.now() - started),
+            response: error instanceof UpstreamError ? error.body : null,
+            generationId: error instanceof UpstreamError ? error.generationId : null,
+            latencyMs: error instanceof UpstreamError ? error.latencyMs : Math.round(performance.now() - started),
             cost: null,
           });
           this.store.status(result.id, 'failed', `Chunk ${chunk.index + 1}/${chunks.length}: ${message}. No automatic retry was made. Earlier chunks remain saved.`);

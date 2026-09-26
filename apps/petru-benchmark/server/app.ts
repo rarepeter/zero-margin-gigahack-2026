@@ -7,17 +7,20 @@ import { Queue } from './queue';
 import { fetchCatalog, redact } from './openrouter';
 import { LOCAL_WHISPER_MODEL } from '../shared/models';
 import { localUnavailable, type LocalTranscriber } from './local-whisper';
+import { HttpError, json } from './http';
+import { createMomApi } from './mom';
+import { ClaudeCliJudge, type Judge } from './judge';
+import type { LocalMom } from './llama';
 
-class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 
-export function createApp(options: { root: string; apiKey: () => string; fetcher?: typeof fetch; loadCatalog?: boolean; localWhisper?: LocalTranscriber }) {
+export function createApp(options: { root: string; apiKey: () => string; fetcher?: typeof fetch; loadCatalog?: boolean; localWhisper?: LocalTranscriber; judge?: Judge; localMom?: LocalMom; judgeConcurrency?: number; momDataDir?: string }) {
   const store = new Store(resolve(options.root));
   store.recover();
   const queue = new Queue(store, options.apiKey, options.fetcher, options.localWhisper);
+  const mom = createMomApi({ db: store.db, judge: options.judge ?? new ClaudeCliJudge(), local: options.localMom, apiKey: options.apiKey, fetcher: options.fetcher, judgeConcurrency: options.judgeConcurrency, dataDir: options.momDataDir });
   let catalog: Config['catalog'] = { checkedAt: null, ids: null, error: null };
   if (options.loadCatalog !== false) void fetchCatalog(options.fetcher).then(value => { catalog = value; });
   let uploading = false;
-  const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 
   async function handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -85,6 +88,7 @@ export function createApp(options: { root: string; apiKey: () => string; fetcher
       if (runMatch[2]) return new Response(JSON.stringify(run, null, 2), { headers: { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="speechbench-${run.id}.json"`, 'Cache-Control': 'no-store' } });
       return json(run);
     }
+    if (path.startsWith('/api/mom/')) { const response = await mom.handle(req, path); if (response) return response; }
     if (path.startsWith('/api/')) throw new HttpError(404, 'Endpoint not found.');
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Method not allowed.');
     const dist = resolve('dist');
@@ -104,6 +108,7 @@ export function createApp(options: { root: string; apiKey: () => string; fetcher
         return json({ error: String(redact(error instanceof Error ? error.message : 'Unexpected server error.', options.apiKey())) }, error instanceof HttpError ? error.status : 500);
       }
     },
-    close: async () => { await queue.close(); store.close(); },
+    mom: mom.store,
+    close: async () => { await Promise.all([queue.close(), mom.close()]); store.close(); },
   };
 }
