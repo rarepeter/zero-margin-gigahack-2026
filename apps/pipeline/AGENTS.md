@@ -44,9 +44,12 @@ through configuration, not hard-coded.
 
 ## Specification discipline
 
-The public API, transcript representation, and MoM JSON schema are drafts. Keep
+The public API routes and detailed MoM `document` schema remain drafts. Keep
 their version markers and avoid inventing clinical, financial, administrative,
-or operational fields or making provisional
-shapes appear final. Plain text is the accepted transcript artifact for now.
-Traceability metadata, content-logging policy, deployment containers, SMTP, and
-the definitive MoM schema remain unresolved or deferred.
+or operational fields or making provisional shapes appear final. The accepted
+audio result is `transcription.v1alpha1` JSON; `transcript.text` is derived into
+plain text only for the MoM service. The accepted MoM envelope is
+`mom.v1alpha1`, and compact portal metadata is `review-context.v1alpha1`.
+Traceability/recommendation metadata, content-logging policy, deployment
+containers, SMTP, and the definitive MoM `document` schema remain unresolved or
+deferred.

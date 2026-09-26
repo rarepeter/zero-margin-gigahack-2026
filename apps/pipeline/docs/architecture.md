@@ -22,7 +22,7 @@ Pipeline worker                                     |
    |                                                |
    | adapter A: submit                               |
    +----------> Audio-processing ML service --------+
-   |             | completed transcription bytes    |
+   |             | transcription.v1alpha1 JSON       |
    |<------------+                                   |
    |                                                |
    | adapter B: multipart .txt submit                |
@@ -42,7 +42,7 @@ service calls the other.
 - validate and persist an uploaded audio file;
 - create a server-generated job ID and initial state;
 - return immediately after the job is safely queued;
-- expose job state and completed artifacts as JSON or plain text as appropriate;
+- expose job state and completed artifacts as versioned JSON;
 - expose health/readiness information; and
 - avoid executing long-running ML work in an API request.
 
@@ -75,29 +75,38 @@ get_status(model_job_id) -> pending | running | completed | failed
 get_result(model_job_id) -> local path or response payload
 ```
 
-The implemented audio completion boundary is instead a pipeline callback that
-accepts the transcription as a small byte body correlated by pipeline and audio
-model job IDs. The text adapter accepts the persisted UTF-8 `.txt` path
-internally and translates it into a multipart upload.
+The implemented audio completion boundary is a pipeline callback that accepts a
+validated `transcription.v1alpha1` JSON body correlated by pipeline and audio
+model job IDs. The text adapter accepts the derived UTF-8 `.txt` path internally
+and translates it into a multipart upload.
 
 These are internal concepts, not a mandatory REST contract for ML owners.
 
 The current audio submission uses a mock adapter that acknowledges a readable
 absolute local path, returns a generated `mock-audio-...` job ID, and sends a
-deterministic transcription to the real pipeline callback after a configurable
-five-second delay. A restarted worker re-schedules the callback for a persisted
-mock job still at `audio_processing`. After the callback, the worker persists
-the source bytes, strictly decodes UTF-8 without parsing JSON or CSV, writes
+deterministic structured transcription to the real pipeline callback after a
+configurable five-second delay. A restarted worker re-schedules the callback for
+a persisted mock job still at `audio_processing`. After the callback, the worker
+persists `transcript/source.json`, extracts its complete `transcript.text` into
 `transcript/transcript.txt`, and uploads that file to the text/MoM service.
 
 The development text/MoM mock returns a generated `mock-text-...` job ID and
-sends a deterministic two-field JSON document to the pipeline callback after a
-configurable five-second delay. Worker recovery re-schedules this callback for
-persisted jobs still at `text_processing`.
+sends a deterministic `mom.v1alpha1` JSON document with `momConfidence` to the
+pipeline callback after a configurable five-second delay. Worker recovery
+re-schedules this callback for persisted jobs still at `text_processing`.
 
 Both services behave asynchronously: submission acknowledges work without
 holding the request open for inference, and each service pushes completion to a
 correlated pipeline callback.
+
+For reliable local development, the embedded mocks route their delayed requests
+through the same FastAPI callback handlers using an in-process ASGI transport by
+default. This exercises request validation, correlation, persistence, and state
+transitions without requiring a TCP connection between the worker and API
+process. An optional HTTP mock transport exercises real loopback networking.
+This development transport choice does not change the real-service boundary:
+independently started ML services deliver their results to the documented HTTP
+callback endpoints.
 
 ## Artifact movement
 
@@ -107,10 +116,15 @@ transferred over local HTTP.
 
 ```text
 recording file path -> audio service
-transcription byte body -> pipeline callback
+transcription.v1alpha1 JSON -> pipeline callback
 transcript.txt multipart upload -> text service
-draft MoM JSON body -> pipeline callback
+mom.v1alpha1 JSON -> pipeline callback
 ```
+
+At the review-ready checkpoint, the pipeline also persists compact
+`review/context.json` metadata. The public review-context endpoint omits the
+submitter email and links to the separately loaded structured transcript and
+draft MoM resources. This data contract does not add a new workflow state.
 
 The exact request and result shapes belong to their adapters. The audio service
 must have operating-system permission to read its recording input path. The

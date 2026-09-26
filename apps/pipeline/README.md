@@ -10,11 +10,11 @@ review-ready draft MoM has been persisted as JSON.
 ```text
 audio upload
     -> local audio-processing service
-    -> pushed transcription bytes
-    -> UTF-8 transcript.txt
+    -> pushed transcription.v1alpha1 JSON
+    -> derived UTF-8 transcript.txt
     -> text-processing service
-    -> pushed draft MoM JSON
-    -> review-ready persisted artifact
+    -> pushed mom.v1alpha1 JSON
+    -> review-ready MoM and compact context artifacts
 ```
 
 This is a 48-hour hackathon MVP, not a production hospital system. Runtime must
@@ -26,24 +26,35 @@ been installed locally.
 The pipeline is functional from audio upload through a persisted draft MoM.
 The API atomically publishes the uploaded recording, and a separate worker
 passes its path to the replaceable mock audio adapter. The audio-to-text service
-then pushes transcription bytes to a correlated integration endpoint. The
-pipeline preserves those bytes, strictly decodes UTF-8 without interpreting
-JSON or CSV syntax, writes `transcript/transcript.txt`, and uploads it to the
-configured text/MoM service. The service pushes its result to a second correlated
-integration endpoint; the pipeline validates and atomically stores
-`mom/draft.json`, then advances to `AWAITING_REVIEW / review_ready`.
+then pushes a structured transcription to a correlated integration endpoint.
+The pipeline validates and preserves `transcript/source.json`, extracts its
+complete transcript text into `transcript/transcript.txt`, and uploads that file
+to the configured text/MoM service. The service pushes its versioned result to a
+second correlated integration endpoint; the pipeline validates and atomically
+stores `mom/draft.json` plus `review/context.json`, then advances to
+`AWAITING_REVIEW / review_ready`.
 
 In the runnable development flow, the mock audio adapter schedules that callback
-five seconds after accepting a recording and sends a deterministic UTF-8 mock
-transcription. If the worker restarts while a mock job is still waiting, it
-re-schedules the callback from the persisted checkpoint. The delay and callback
-base URL are configurable with `PIPELINE_MOCK_AUDIO_CALLBACK_DELAY_SECONDS` and
+five seconds after accepting a recording and sends a deterministic
+`transcription.v1alpha1` mock result. If the worker restarts while a mock job is
+still waiting, it re-schedules the callback from the persisted checkpoint. By
+default, the mock routes the request through the real FastAPI callback handler
+in-process, so development does not depend on loopback networking. The delay
+and callback base URL are configurable with
+`PIPELINE_MOCK_AUDIO_CALLBACK_DELAY_SECONDS` and
 `PIPELINE_MOCK_AUDIO_CALLBACK_BASE_URL`.
 
 The runtime text/MoM mock similarly accepts `transcript.txt`, waits five seconds,
-and pushes a two-field JSON object containing `schemaVersion` and `document`.
-Its delay and callback base URL are independently configurable. The persisted
-draft is available through `GET /api/v1/jobs/{jobId}/mom`.
+and pushes a `mom.v1alpha1` object containing `schemaVersion`, `quality`, and
+`document`. Its delay and callback base URL are independently configurable. The
+persisted draft, structured transcript, and compact review context are available
+through separate read endpoints.
+
+Set `PIPELINE_MOCK_CALLBACK_TRANSPORT=http` to make both mocks use actual HTTP
+callbacks instead. This mode is useful for testing process networking and
+deployment wiring, and requires the worker to reach the configured pipeline API
+callback base URLs. Real independently started ML services always use the HTTP
+callback endpoints; the in-process option applies only to development mocks.
 
 Manual retry and readiness remain mock or unimplemented.
 
@@ -121,11 +132,15 @@ curl --data-binary @transcription.json \
   http://127.0.0.1:8000/api/v1/integrations/audio/jobs/<job-id>/transcription
 ```
 
+Authentication and SSO are outside this MVP. The pipeline uses the fixed local
+demo submitter configured by `PIPELINE_DEMO_SUBMITTER_*`; the upload endpoint
+does not accept or validate identity fields.
+
 Jobs are stored below `PIPELINE_STORAGE_ROOT/jobs/<job-id>/`. Each contains
 `state.json`, a server-named audio artifact under `input/`, source and `.txt`
 transcription checkpoints under `transcript/`, and an append-only
-`operations.ndjson` history. Completed jobs also contain `mom/draft.json`.
-State and artifact installation are atomic.
+`operations.ndjson` history. Review-ready jobs also contain `mom/draft.json` and
+`review/context.json`. State and artifact installation are atomic.
 
 ## Filesystem services
 
@@ -137,8 +152,10 @@ layout. Paths escaping the supplied root are rejected.
 ## OpenAPI documents
 
 - `docs/openapi/pipeline.openapi.json` is generated from the FastAPI app.
-- `docs/openapi/audio-processing.openapi.json` is a discovery-only ML boundary.
-- `docs/openapi/text-processing.openapi.json` is a discovery-only ML boundary.
+- `docs/openapi/audio-processing.openapi.json` defines the agreed structured
+  transcription result and provisional service transport.
+- `docs/openapi/text-processing.openapi.json` defines the agreed MoM envelope
+  and provisional service transport.
 
 Regenerate the pipeline document after changing the API:
 
@@ -146,8 +163,8 @@ Regenerate the pipeline document after changing the API:
 uv run pipeline-export-openapi docs/openapi/pipeline.openapi.json
 ```
 
-The ML documents intentionally use open objects and `TODO(discovery)` notices;
-they are not contracts for the ML owners yet.
+The detailed MoM `document` object and remaining service transport details stay
+open; the versioned envelopes and quality fields are current contracts.
 
 ## Verification
 
@@ -158,8 +175,9 @@ uv run pytest
 ```
 
 The tests cover upload validation and persistence, callback correlation and
-idempotency, UTF-8 conversion with unchanged content, multipart `.txt` upload,
-both delayed mock callbacks, JSON validation and persistence, atomic checkpoints,
+idempotency, structured-transcript extraction, multipart `.txt` upload, both
+delayed mock callbacks, versioned JSON validation, confidence propagation,
+review-context projection, atomic checkpoints,
 restart recovery, status reads, event ordering, concurrent locking,
 non-blocking scheduling, transient retry, and safe failures.
 

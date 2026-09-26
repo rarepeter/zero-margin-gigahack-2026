@@ -1,14 +1,15 @@
 # OpenAPI status
 
-All documents in this directory are provisional.
+The transport remains provisional, while the versioned data shapes described
+below are agreed for the current integration increment.
 
-- `pipeline.openapi.json` is generated from the FastAPI application. Job
-  creation and status reads are implemented; the remaining operations are
-  marked as mocks in their operation metadata.
-- `audio-processing.openapi.json` describes only the conceptual asynchronous
-  boundary for the independently owned audio service.
-- `text-processing.openapi.json` describes only the conceptual asynchronous
-  boundary for the independently owned text service.
+- `pipeline.openapi.json` is generated from the FastAPI application and includes
+  the structured transcription callback, versioned MoM callback, separate
+  transcript/MoM reads, and compact review-context read.
+- `audio-processing.openapi.json` fixes the `transcription.v1alpha1` result
+  structure, including transcript confidence.
+- `text-processing.openapi.json` fixes the `mom.v1alpha1` envelope and MoM
+  confidence while leaving the detailed `document` object open.
 
-`TODO(discovery)` descriptions are intentional. They prevent placeholder paths
-and open object schemas from being mistaken for finalized integration contracts.
+Health details and service transport choices that still carry discovery markers
+are not finalized by these data-shape decisions.

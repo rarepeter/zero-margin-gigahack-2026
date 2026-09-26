@@ -21,6 +21,9 @@ class ApiRoutes:
         "PIPELINE_TRANSCRIPT_ROUTE", "/jobs/{job_id}/transcript"
     )
     mom: str = os.getenv("PIPELINE_MOM_ROUTE", "/jobs/{job_id}/mom")
+    review_context: str = os.getenv(
+        "PIPELINE_REVIEW_CONTEXT_ROUTE", "/jobs/{job_id}/review-context"
+    )
     retry: str = os.getenv("PIPELINE_RETRY_ROUTE", "/jobs/{job_id}/retry")
     transcription_result: str = os.getenv(
         "PIPELINE_TRANSCRIPTION_RESULT_ROUTE",
@@ -48,6 +51,18 @@ class Settings:
         "PIPELINE_LOG_FILE", "runtime/logs/pipeline.log"
     )
 
+    # Authentication is outside the MVP. This fixed local identity represents
+    # the already-authenticated submitter during the offline demonstration.
+    demo_submitter_user_id: str = os.getenv(
+        "PIPELINE_DEMO_SUBMITTER_USER_ID", "demo-user"
+    )
+    demo_submitter_email: str = os.getenv(
+        "PIPELINE_DEMO_SUBMITTER_EMAIL", "demo@medpark.test"
+    )
+    demo_submitter_display_name: str | None = os.getenv(
+        "PIPELINE_DEMO_SUBMITTER_DISPLAY_NAME", "Demo User"
+    )
+
     # TODO(discovery, TD-026): replace these placeholders with ML-owner URLs.
     audio_service_url: str = os.getenv(
         "PIPELINE_AUDIO_SERVICE_URL", "http://127.0.0.1:8101"
@@ -68,7 +83,11 @@ class Settings:
         os.getenv("PIPELINE_MOM_MAX_BYTES", str(10 * 1024 * 1024))
     )
 
-    # The development mock calls the real pipeline callback after a short delay.
+    # Development mocks route through the real callback handlers in-process by
+    # default. Use "http" to exercise actual loopback networking.
+    mock_callback_transport: str = os.getenv(
+        "PIPELINE_MOCK_CALLBACK_TRANSPORT", "in_process"
+    )
     mock_audio_callback_base_url: str = os.getenv(
         "PIPELINE_MOCK_AUDIO_CALLBACK_BASE_URL",
         f"http://127.0.0.1:{os.getenv('PIPELINE_API_PORT', '8000')}",

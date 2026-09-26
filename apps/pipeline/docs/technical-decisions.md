@@ -24,7 +24,7 @@ Statuses used here:
 | TD-010 | Accepted | Treat ML services as externally started local services configured by URL and port. | The pipeline does not own model processes or packaging. |
 | TD-011 | Accepted | Pass the recording to the audio service by local filesystem path and upload the prepared transcript to the text/MoM service as a multipart `.txt` file. | The two independently owned ML services use different integration shapes. |
 | TD-012 | Accepted | ML services never communicate directly. | The pipeline owns validation, persistence, and artifact handoff. |
-| TD-013 | Accepted | Use plain text as the transcript artifact for now. | Keeps the initial integration contract small. |
+| TD-013 | Accepted | Preserve the audio service result as versioned structured JSON and derive plain text for the MoM service. | The portal needs segments and compact audio-derived metadata, while the text service still consumes one UTF-8 text file. |
 | TD-014 | Accepted | Stop the pipeline at a review-ready draft MoM JSON. | Frontend editing and file export are separate responsibilities. |
 | TD-015 | Accepted | Use JSON as the canonical MoM representation. | One machine-readable handoff for the frontend and later exporters. |
 | TD-016 | Accepted | Create a job only after its upload is safely persisted. | Avoids a public upload-in-progress state in the MVP. |
@@ -35,7 +35,7 @@ Statuses used here:
 | TD-021 | Accepted | Declare and lock source dependencies and preinstall everything needed for offline operation. | The demo cannot depend on runtime internet access. |
 | TD-022 | Out of scope | Frontend editing and ODF/DOCX download generation. | These belong to the frontend workstream. |
 | TD-023 | Deferred | SMTP and distribution-list delivery. | The team will decide this later. |
-| TD-024 | Open | Definitive MoM JSON schema. | The text-model and frontend contracts still need alignment. |
+| TD-024 | Open | Definitive MoM `document` schema. | The `mom.v1alpha1` envelope and confidence field are agreed, but the text-model and frontend still need to align on document content. |
 | TD-025 | Open | Final public HTTP API contract. | Current endpoints are a draft and do not include approval. |
 | TD-026 | Open | Exact contracts exposed by the two ML services. | Adapter specifications depend on ML-owner input. |
 | TD-027 | Open | Meaning and ownership of the final `COMPLETED` state. | The pipeline ends at `AWAITING_REVIEW`, while later frontend actions occur outside it. |
@@ -47,9 +47,13 @@ Statuses used here:
 | TD-033 | Provisional | Accept common audio extensions up to 300 MiB without decoding or transcoding. | Provides a useful upload boundary while the definitive audio contract remains open. |
 | TD-034 | Provisional | Use an isolated mock audio adapter that acknowledges pickup and pushes a deterministic transcription callback after five seconds. | Exercises the complete asynchronous handoff without presenting the mock as the real ML contract. |
 | TD-035 | Accepted | Persist per-job operational history as versioned, append-only Kafka-shaped NDJSON records. | Gives local services one ordered record envelope without introducing a broker or processor. |
-| TD-036 | Accepted | Persist the pushed transcription bytes before transforming them, then write the same decoded UTF-8 content to `transcript.txt`. | The source may contain plain, JSON, or CSV text; this increment changes representation without parsing or restructuring it. |
+| TD-036 | Accepted | Validate and persist `transcription.v1alpha1` JSON, then extract `transcript.text` to `transcript.txt`. | The structured source serves the portal and supplies audio metadata; the derived file remains the text/MoM input. |
 | TD-037 | Provisional | The text/MoM service accepts `transcript.txt` through multipart upload and returns an asynchronous model job ID. | The adapter isolates route and response details until the ML owner confirms the final contract. |
-| TD-038 | Provisional | The development text/MoM mock pushes a two-field JSON object to a correlated pipeline callback after five seconds. | Exercises JSON validation, atomic persistence, recovery, and the `AWAITING_REVIEW` transition without defining the final MoM schema. |
+| TD-038 | Provisional | The development text/MoM mock pushes a `mom.v1alpha1` JSON object to a correlated pipeline callback after five seconds. | Exercises envelope and confidence validation, atomic persistence, recovery, and the `AWAITING_REVIEW` transition without defining the final `document` schema. |
+| TD-039 | Accepted | Persist `review-context.v1alpha1` beside a review-ready MoM and expose it separately from transcript and MoM content. | Initial portal metadata stays compact; the potentially large transcript is loaded through its own endpoint. |
+| TD-040 | Accepted | Keep transcript and MoM confidence in review context; do not include recommendation annotations, issue counts, or export gating. | Confidence is part of the agreed ML outputs, while red-word recommendations require later ML-team validation. |
+| TD-041 | Accepted | Keep authentication and SSO outside the MVP API; use one configured local demo submitter identity. | The upload contract remains audio-only while review metadata can still carry the assumed submitter needed by the later notification flow. |
+| TD-042 | Provisional | Route embedded development-mock callbacks through the real FastAPI handlers using in-process ASGI by default, with actual HTTP available by configuration. | Keeps mock runs deterministic in restricted local environments while preserving the externally visible HTTP callback contract for real ML services and network-level integration tests. |
 
 ## Logging clarification
 

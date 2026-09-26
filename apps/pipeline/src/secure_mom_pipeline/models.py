@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def utc_now() -> datetime:
@@ -16,6 +16,12 @@ def utc_now() -> datetime:
 
 class PipelineModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
+
+
+class ContractModel(PipelineModel):
+    """Strict model used at ML and portal-facing data boundaries."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
 class JobStatus(StrEnum):
@@ -43,6 +49,23 @@ class ArtifactDescriptor(PipelineModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class SubmittedBy(PipelineModel):
+    user_id: str = Field(alias="userId", min_length=1)
+    display_name: str | None = Field(default=None, alias="displayName")
+    email: str = Field(min_length=3, pattern=r"^[^@\s]+@[^@\s]+$")
+
+
+class PublicSubmittedBy(PipelineModel):
+    user_id: str = Field(alias="userId", min_length=1)
+    display_name: str | None = Field(default=None, alias="displayName")
+
+
+class SourceRecording(PipelineModel):
+    original_file_name: str = Field(alias="originalFileName", min_length=1)
+    media_type: str = Field(alias="mediaType", min_length=1)
+    size_bytes: int = Field(alias="sizeBytes", ge=1)
+
+
 class JobArtifacts(PipelineModel):
     audio: str
     transcript: str | None = None
@@ -53,6 +76,10 @@ class JobArtifacts(PipelineModel):
     )
     text_input: ArtifactDescriptor | None = Field(default=None, alias="textInput")
     mom_output: ArtifactDescriptor | None = Field(default=None, alias="momOutput")
+    review_context: ArtifactDescriptor | None = Field(
+        default=None,
+        alias="reviewContext",
+    )
 
 
 class JobError(PipelineModel):
@@ -62,7 +89,7 @@ class JobError(PipelineModel):
 
 
 class JobState(PipelineModel):
-    schema_version: int = Field(default=2, alias="schemaVersion")
+    schema_version: int = Field(default=3, alias="schemaVersion")
     job_id: str = Field(alias="jobId")
     status: JobStatus
     stage: str
@@ -71,6 +98,11 @@ class JobState(PipelineModel):
     attempts: JobAttempts = Field(default_factory=JobAttempts)
     model_jobs: ModelJobs = Field(default_factory=ModelJobs, alias="modelJobs")
     artifacts: JobArtifacts
+    submitted_by: SubmittedBy | None = Field(default=None, alias="submittedBy")
+    source_recording: SourceRecording | None = Field(
+        default=None,
+        alias="sourceRecording",
+    )
     error: JobError | None = None
 
 
@@ -84,6 +116,7 @@ class CreateJobResponse(PipelineModel):
 class ArtifactAvailability(PipelineModel):
     transcript_available: bool = Field(alias="transcriptAvailable")
     mom_available: bool = Field(alias="momAvailable")
+    review_context_available: bool = Field(alias="reviewContextAvailable")
 
 
 class JobStatusResponse(PipelineModel):
@@ -106,6 +139,7 @@ class JobStatusResponse(PipelineModel):
             artifacts=ArtifactAvailability(
                 transcript_available=state.artifacts.transcript is not None,
                 mom_available=state.artifacts.mom is not None,
+                review_context_available=state.artifacts.review_context is not None,
             ),
             error=state.error,
         )
@@ -144,6 +178,178 @@ class TranscriptionSource(PipelineModel):
 
 class TextDocument(PipelineModel):
     text: str
+
+
+class TranscriptSegment(ContractModel):
+    id: str = Field(min_length=1)
+    start_ms: int = Field(alias="startMs", ge=0)
+    end_ms: int | None = Field(alias="endMs", ge=0)
+    speaker_id: str | None = Field(alias="speakerId", min_length=1)
+    languages: list[str]
+    text: str = Field(min_length=1)
+    confidence: float | None = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> TranscriptSegment:
+        if self.end_ms is not None and self.end_ms < self.start_ms:
+            raise ValueError("endMs must be greater than or equal to startMs")
+        return self
+
+
+class TranscriptContent(ContractModel):
+    text: str = Field(min_length=1)
+    segments: list[TranscriptSegment]
+
+
+class AudioMetadata(ContractModel):
+    duration_ms: int = Field(alias="durationMs", gt=0)
+
+
+class DetectedLanguage(ContractModel):
+    code: str = Field(min_length=2, max_length=16)
+    proportion: float = Field(ge=0, le=1)
+
+
+class LanguageDetection(ContractModel):
+    languages: list[DetectedLanguage]
+
+
+class TranscriptionSpeaker(ContractModel):
+    id: str = Field(min_length=1)
+    display_name: str | None = Field(alias="displayName")
+    languages: list[str]
+    speaking_time_proportion: float | None = Field(
+        alias="speakingTimeProportion",
+        ge=0,
+        le=1,
+    )
+
+
+class TranscriptionQuality(ContractModel):
+    transcript_confidence: float = Field(alias="transcriptConfidence", ge=0, le=1)
+    confidence_scale: Literal["ZERO_TO_ONE"] = Field(
+        alias="confidenceScale",
+    )
+
+
+class TranscriptionResult(ContractModel):
+    schema_version: Literal["transcription.v1alpha1"] = Field(alias="schemaVersion")
+    job_id: str = Field(alias="jobId", min_length=1)
+    transcript: TranscriptContent
+    audio_metadata: AudioMetadata = Field(alias="audioMetadata")
+    language_detection: LanguageDetection = Field(alias="languageDetection")
+    speakers: list[TranscriptionSpeaker]
+    quality: TranscriptionQuality
+
+
+class MomQuality(ContractModel):
+    mom_confidence: float = Field(alias="momConfidence", ge=0, le=1)
+    confidence_scale: Literal["ZERO_TO_ONE"] = Field(
+        alias="confidenceScale",
+    )
+
+
+class MomResult(ContractModel):
+    schema_version: Literal["mom.v1alpha1"] = Field(alias="schemaVersion")
+    quality: MomQuality
+    document: dict[str, Any]
+
+
+class ProcessingSummary(PipelineModel):
+    started_at: datetime = Field(alias="startedAt")
+    completed_at: datetime = Field(alias="completedAt")
+    elapsed_ms: int = Field(alias="elapsedMs", ge=0)
+
+
+class ReviewSourceRecording(SourceRecording):
+    duration_ms: int = Field(alias="durationMs", gt=0)
+
+
+class MeetingMetadata(PipelineModel):
+    duration_ms: int = Field(alias="durationMs", gt=0)
+    speaker_count: int = Field(alias="speakerCount", ge=0)
+    named_speaker_count: int = Field(alias="namedSpeakerCount", ge=0)
+    languages: list[DetectedLanguage]
+
+
+class ReviewQuality(PipelineModel):
+    transcript_confidence: float = Field(alias="transcriptConfidence", ge=0, le=1)
+    mom_confidence: float = Field(alias="momConfidence", ge=0, le=1)
+    overall_confidence: float | None = Field(
+        alias="overallConfidence",
+        ge=0,
+        le=1,
+    )
+    confidence_scale: Literal["ZERO_TO_ONE"] = Field(
+        alias="confidenceScale",
+    )
+
+
+class ArtifactLink(PipelineModel):
+    available: bool
+    href: str
+
+
+class ReviewArtifactLinks(PipelineModel):
+    mom: ArtifactLink
+    transcript: ArtifactLink
+
+
+class ReviewContext(ContractModel):
+    """Persisted server-side context, including the notification recipient."""
+
+    schema_version: Literal["review-context.v1alpha1"] = Field(alias="schemaVersion")
+    job_id: str = Field(alias="jobId", min_length=1)
+    status: JobStatus
+    stage: str
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    submitted_by: SubmittedBy = Field(alias="submittedBy")
+    source_recording: ReviewSourceRecording = Field(alias="sourceRecording")
+    processing: ProcessingSummary
+    meeting_metadata: MeetingMetadata = Field(alias="meetingMetadata")
+    speakers: list[TranscriptionSpeaker]
+    quality: ReviewQuality
+    artifacts: ReviewArtifactLinks
+
+
+class ReviewContextResponse(ContractModel):
+    """Browser-facing context with the submitter email intentionally omitted."""
+
+    schema_version: Literal["review-context.v1alpha1"] = Field(alias="schemaVersion")
+    job_id: str = Field(alias="jobId", min_length=1)
+    status: JobStatus
+    stage: str
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    submitted_by: PublicSubmittedBy = Field(alias="submittedBy")
+    source_recording: ReviewSourceRecording = Field(alias="sourceRecording")
+    processing: ProcessingSummary
+    meeting_metadata: MeetingMetadata = Field(alias="meetingMetadata")
+    speakers: list[TranscriptionSpeaker]
+    quality: ReviewQuality
+    artifacts: ReviewArtifactLinks
+
+    @classmethod
+    def from_context(cls, context: ReviewContext) -> ReviewContextResponse:
+        return cls(
+            schema_version=context.schema_version,
+            job_id=context.job_id,
+            status=context.status,
+            stage=context.stage,
+            created_at=context.created_at,
+            updated_at=context.updated_at,
+            submitted_by=PublicSubmittedBy(
+                user_id=context.submitted_by.user_id,
+                display_name=context.submitted_by.display_name,
+            ),
+            source_recording=context.source_recording,
+            processing=context.processing,
+            meeting_metadata=context.meeting_metadata,
+            speakers=context.speakers,
+            quality=context.quality,
+            artifacts=context.artifacts,
+        )
 
 
 class TextSubmission(PipelineModel):

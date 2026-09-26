@@ -346,3 +346,40 @@ API and worker processed job `031e7b07-69f2-4981-a2fc-c26474e02090` through both
 delayed mock callbacks, persisted the two-field `mom/draft.json`, exposed it
 through the public MoM endpoint, and reached `AWAITING_REVIEW / review_ready`.
 The served API version was `0.4.0-provisional`.
+
+# Review-boundary data-contract alignment
+
+Status: completed on 26 September 2026
+
+This increment supersedes the earlier format-neutral transcription input and
+two-field mock MoM envelope. It changes data structures only; it does not add a
+new workflow, email delivery, portal editing, approval, export, or ML-generated
+review recommendations.
+
+- [x] Require `transcription.v1alpha1` JSON from the audio-to-text callback,
+  including complete text, display segments, duration, language proportions,
+  speakers, and transcript confidence.
+- [x] Preserve the structured source separately and derive
+  `transcript/transcript.txt` for the existing text/MoM input.
+- [x] Require the `mom.v1alpha1` envelope with MoM confidence while leaving its
+  detailed `document` object open.
+- [x] Persist compact `review-context.v1alpha1` metadata when the MoM is ready;
+  retain submitter email server-side but omit it from the browser projection.
+- [x] Keep authentication out of the public contract; source the assumed MVP
+  submitter from fixed local demo configuration rather than upload headers.
+- [x] Keep transcript and MoM content behind separate read endpoints so the
+  large transcript does not inflate review-context responses.
+- [x] Preserve the existing job statuses and stages.
+- [x] Exclude recommendation annotations, issue counters, and export gating.
+- [x] Update both ML contracts, the generated pipeline OpenAPI, development
+  mocks, artifact documentation, and automated contract tests.
+
+All 36 automated tests passed, source and tests compiled, all three OpenAPI
+documents parsed, and `git diff --check` passed. The API and worker were
+restarted from this checkout. Live job
+`2351deeb-12cc-4fbf-bc77-9b4b52c07723` accepted the structured transcription
+and versioned MoM, persisted the structured source, derived plain-text input,
+and review context, and reached `AWAITING_REVIEW / review_ready`. The served API
+reported `0.5.0-provisional`; the browser review-context response propagated
+both confidence scores without exposing the submitter email, and the transcript
+was returned through its separate endpoint.

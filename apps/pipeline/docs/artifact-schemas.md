@@ -13,10 +13,12 @@ runtime/jobs/<job-id>/
   input/
     meeting.<original-extension>
   transcript/
-    source.bin
+    source.json
     transcript.txt
   mom/
     draft.json
+  review/
+    context.json
   operations.ndjson
 ```
 
@@ -29,7 +31,7 @@ The state file is pipeline-owned. A provisional shape is:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "jobId": "01J...",
   "status": "AWAITING_REVIEW",
   "stage": "review_ready",
@@ -45,9 +47,9 @@ The state file is pipeline-owned. A provisional shape is:
   },
   "artifacts": {
     "audio": "input/meeting.wav",
-    "transcript": "transcript/transcript.txt",
+    "transcript": "transcript/source.json",
     "transcriptionSource": {
-      "path": "transcript/source.bin",
+      "path": "transcript/source.json",
       "mediaType": "application/json",
       "byteCount": 1234,
       "sha256": "<64 lowercase hexadecimal characters>"
@@ -64,7 +66,23 @@ The state file is pipeline-owned. A provisional shape is:
       "mediaType": "application/json",
       "byteCount": 82,
       "sha256": "<64 lowercase hexadecimal characters>"
+    },
+    "reviewContext": {
+      "path": "review/context.json",
+      "mediaType": "application/json",
+      "byteCount": 960,
+      "sha256": "<64 lowercase hexadecimal characters>"
     }
+  },
+  "submittedBy": {
+    "userId": "sso-user-1842",
+    "displayName": "Elena Popescu",
+    "email": "elena.popescu@medpark.md"
+  },
+  "sourceRecording": {
+    "originalFileName": "meeting.m4a",
+    "mediaType": "audio/mp4",
+    "sizeBytes": 733645
   },
   "error": null
 }
@@ -91,34 +109,32 @@ The initial pipeline is expected to stop at `AWAITING_REVIEW`. The role of
 
 - The uploaded bytes are preserved without modification by the pipeline.
 - The server controls the stored filename and never trusts a client path.
-- Original filename and media type may be recorded as metadata, but must not be
-  used to resolve filesystem locations.
+- Original filename, media type, and byte count are recorded as metadata, but
+  must not be used to resolve filesystem locations.
 - Supported formats and maximum size are not yet agreed.
 
 ## Transcription artifacts
 
-The audio-to-text service pushes a small non-empty byte document. The pipeline
-atomically preserves those original bytes without assuming whether their
-textual content uses plain text, JSON, or CSV syntax:
+The audio-to-text service pushes a validated `transcription.v1alpha1` JSON
+document. The pipeline atomically preserves its original bytes at:
 
 ```text
-transcript/source.bin
+transcript/source.json
 ```
 
-The initial transformer strictly decodes the source as UTF-8 and writes every
-decoded character unchanged to:
+The structured source contains complete transcript text, display segments,
+duration, languages, speakers, and transcript confidence. The transformer
+extracts `transcript.text` without rewriting it and writes that value to:
 
 ```text
 transcript/transcript.txt
 ```
 
-JSON remains JSON text and CSV remains CSV text inside this file; the current
-transformer does not extract fields, normalize content, or concatenate text.
-The text/MoM adapter uploads the artifact as multipart file `transcript.txt`
-with media type `text/plain; charset=utf-8`.
-
-An empty source or invalid UTF-8 is rejected. A later transformer may implement
-format-aware extraction or concatenation without changing the ML adapters.
+The text/MoM adapter uploads this derived artifact as multipart file
+`transcript.txt` with media type `text/plain; charset=utf-8`. Empty, malformed,
+non-JSON, wrong-version, or structurally invalid transcription results are
+rejected before a checkpoint is published. The complete structured source is
+returned separately by the public transcript endpoint.
 
 ## Draft MoM artifact
 
@@ -128,16 +144,19 @@ The canonical artifact is UTF-8 JSON:
 mom/draft.json
 ```
 
-The definitive content schema will be agreed later with the text-model and
-frontend workstreams. Until then, the pipeline must treat the model-produced MoM
-as a JSON document, validate that it is syntactically valid, and retain schema
-version information when provided.
+The definitive `document` content schema will be agreed later with the
+text-model and frontend workstreams. The surrounding envelope and its confidence
+field are agreed and validated now.
 
-A non-binding two-field envelope used by the development mock is:
+A valid development-mock envelope is:
 
 ```json
 {
-  "schemaVersion": "mock-v1",
+  "schemaVersion": "mom.v1alpha1",
+  "quality": {
+    "momConfidence": 0.86,
+    "confidenceScale": "ZERO_TO_ONE"
+  },
   "document": {
     "content": "Mock Minutes of Meeting"
   }
@@ -145,13 +164,26 @@ A non-binding two-field envelope used by the development mock is:
 ```
 
 The mock sends this object to the pipeline callback after a configurable
-five-second delay. The pipeline validates that the result is a UTF-8 JSON object
-and atomically persists the original bytes before advancing to
-`AWAITING_REVIEW`.
+five-second delay. The pipeline validates the versioned envelope and atomically
+persists the original bytes before advancing to `AWAITING_REVIEW`.
 
-This envelope does not define clinical, financial, administrative, executive,
-operational, or crisis-meeting MoM fields and must not be presented as the
-final model contract.
+The `document` object does not yet define clinical, financial, administrative,
+executive, operational, or crisis-meeting MoM fields.
+
+## Review-context artifact
+
+`review/context.json` is created with the MoM checkpoint. It contains compact
+portal metadata: the existing workflow state, submitter context, original file
+metadata, processing timing, audio duration, language and speaker aggregates,
+transcript confidence, MoM confidence, and API links for the two large content
+artifacts. It deliberately excludes transcript segments and MoM document
+content.
+
+The persisted artifact retains the submitter email for future local
+notification delivery. The browser-facing response projects that field out.
+`overallConfidence` is nullable because no aggregation rule has been agreed.
+There are no recommendation annotations, review-issue counts, or export-blocking
+fields in this contract.
 
 ## Operational events
 

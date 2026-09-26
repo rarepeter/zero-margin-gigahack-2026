@@ -26,11 +26,12 @@ The pipeline must:
 1. accept one audio recording and safely persist it;
 2. return a job identifier without waiting for inference;
 3. invoke the local audio-processing service asynchronously;
-4. accept and persist its transcription bytes, then write the same UTF-8 content
-   as a plain-text file;
+4. accept and persist its structured transcription JSON, then extract the
+   complete transcript text as a UTF-8 plain-text file;
 5. upload that file to the local text-processing service asynchronously;
-6. persist its review-ready draft MoM as JSON; and
-7. expose job status and artifacts to the frontend through a local HTTP API.
+6. persist its review-ready draft MoM and compact review context as JSON; and
+7. expose job status, review context, transcript, and MoM through separate local
+   HTTP reads.
 
 ## Product principles relevant to the pipeline
 

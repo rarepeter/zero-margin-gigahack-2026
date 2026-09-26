@@ -2,17 +2,17 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Text-processing ML API",
-    "version": "0.0.0-discovery",
-    "description": "Provisional asynchronous boundary. The adapter supplies a UTF-8 transcript.txt file and the service pushes draft MoM JSON to the pipeline callback. TODO(discovery, TD-026): confirm the final route, field name, acknowledgement, statuses, and callback contract."
+    "version": "0.1.0-contract",
+    "description": "Asynchronous local transcript-to-MoM boundary. The pipeline supplies a UTF-8 transcript.txt file and the service pushes a mom.v1alpha1 result to the configured pipeline callback."
   },
   "paths": {
     "/health": {
       "get": {
         "operationId": "textHealth",
-        "summary": "Check the provisional service boundary",
+        "summary": "Check whether the local text service is alive",
         "responses": {
           "200": {
-            "description": "TODO(discovery): define the health response",
+            "description": "Service is alive",
             "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
           }
         }
@@ -22,13 +22,27 @@
       "post": {
         "operationId": "submitTextJob",
         "summary": "Submit transcript.txt for MoM processing asynchronously",
+        "parameters": [
+          {
+            "name": "X-Pipeline-Job-Id",
+            "in": "header",
+            "required": true,
+            "schema": {"type": "string", "minLength": 1}
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {"type": "string", "minLength": 1}
+          }
+        ],
         "requestBody": {
           "required": true,
-          "description": "Provisional adapter contract; correlation and idempotency are sent as headers by the pipeline.",
           "content": {
             "multipart/form-data": {
               "schema": {
                 "type": "object",
+                "additionalProperties": false,
                 "required": ["transcript"],
                 "properties": {
                   "transcript": {
@@ -43,60 +57,54 @@
         },
         "responses": {
           "202": {
-            "description": "Provisional asynchronous acknowledgement",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["modelJobId", "status"],
-                  "properties": {
-                    "modelJobId": {"type": "string", "minLength": 1},
-                    "status": {"type": "string", "const": "accepted"}
-                  }
-                }
-              }
-            }
+            "description": "Text job accepted",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TextJobAcknowledgement"}}}
           }
-        }
-      }
-    },
-    "/jobs/{modelJobId}": {
-      "get": {
-        "operationId": "getTextJobStatus",
-        "summary": "Poll provisional text-processing status",
-        "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
-        "responses": {
-          "200": {
-            "description": "TODO(discovery): define statuses and failure representation",
-            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
-          }
-        }
-      }
-    },
-    "/jobs/{modelJobId}/result": {
-      "get": {
-        "deprecated": true,
-        "operationId": "getTextJobResult",
-        "summary": "Discovery placeholder not used by the implemented pipeline",
-        "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
-        "responses": {
-          "501": {
-            "description": "The implemented handoff uses the pipeline draft MoM callback instead"
-          }
+        },
+        "x-completion-callback": {
+          "method": "POST",
+          "contentType": "application/json",
+          "correlationHeader": "X-Text-Model-Job-Id",
+          "payloadSchema": {"$ref": "#/components/schemas/MomResult"}
         }
       }
     }
   },
   "components": {
-    "parameters": {
-      "ModelJobId": {
-        "name": "modelJobId",
-        "in": "path",
-        "required": true,
-        "description": "TODO(discovery): define identifier constraints",
-        "schema": {"type": "string"}
+    "schemas": {
+      "TextJobAcknowledgement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["modelJobId", "status"],
+        "properties": {
+          "modelJobId": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "const": "accepted"}
+        }
+      },
+      "MomResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "quality", "document"],
+        "properties": {
+          "schemaVersion": {"type": "string", "const": "mom.v1alpha1"},
+          "quality": {"$ref": "#/components/schemas/MomQuality"},
+          "document": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Generated MoM document. Its detailed content schema remains owned by the ML/frontend alignment work."
+          }
+        }
+      },
+      "MomQuality": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["momConfidence", "confidenceScale"],
+        "properties": {
+          "momConfidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "confidenceScale": {"type": "string", "const": "ZERO_TO_ONE"}
+        }
       }
     }
   },
-  "x-contract-status": "TODO(discovery): not an implementation contract"
+  "x-contract-status": "Agreed v1alpha1 envelope and quality shape; detailed document content remains open"
 }

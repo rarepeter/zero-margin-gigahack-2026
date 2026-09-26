@@ -17,8 +17,10 @@ boundary module.
 ## Filesystem and artifacts
 
 - `TODO(discovery)`: choose final runtime roots. The implemented job layout uses
-  `transcript/source.bin` and `transcript/transcript.txt` provisionally.
-- `TODO(discovery, TD-024)`: define the draft MoM JSON schema.
+  `transcript/source.json`, `transcript/transcript.txt`, and
+  `review/context.json` provisionally.
+- `TODO(discovery, TD-024)`: define the detailed MoM `document` schema. The
+  surrounding `mom.v1alpha1` envelope and confidence field are agreed.
 - `TODO(discovery)`: define persistence, atomic replacement, queueing, and
   recovery when those features enter implementation scope.
 
@@ -27,6 +29,9 @@ boundary module.
 - `TODO(discovery, TD-026)`: confirm both callback routes/headers and the
   text-service multipart field, acknowledgement, status values, and errors with
   their owners.
+- Validate whether the ML services can later provide reliable word-level
+  recommendations or ambiguity annotations. They are not part of the current
+  contracts.
 - Replace the current mock audio pickup adapter only after the audio-service
   contract is agreed.
 - `TODO(discovery, TD-032)`: choose polling intervals, timeouts, and the error

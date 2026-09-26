@@ -2,17 +2,17 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Audio-processing ML API",
-    "version": "0.0.0-discovery",
-    "description": "Provisional asynchronous submission boundary. After processing, the audio-to-text service pushes transcription bytes to the pipeline callback documented by the pipeline API. TODO(discovery, TD-026): confirm all routes, payloads, identifiers, and callback behavior."
+    "version": "0.1.0-contract",
+    "description": "Asynchronous local audio-to-text boundary. The service accepts a local recording reference, returns a model job ID, and pushes a transcription.v1alpha1 result to the configured pipeline callback."
   },
   "paths": {
     "/health": {
       "get": {
         "operationId": "audioHealth",
-        "summary": "Check the provisional service boundary",
+        "summary": "Check whether the local audio service is alive",
         "responses": {
           "200": {
-            "description": "TODO(discovery): define the health response",
+            "description": "Service is alive",
             "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
           }
         }
@@ -24,54 +24,123 @@
         "summary": "Submit local audio processing asynchronously",
         "requestBody": {
           "required": true,
-          "description": "TODO(discovery): define how the local input path, pipeline job ID, and transcription callback URL are represented",
-          "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AudioJobRequest"}}}
         },
         "responses": {
           "202": {
-            "description": "TODO(discovery): define asynchronous acknowledgement",
-            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
+            "description": "Audio job accepted",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AudioJobAcknowledgement"}}}
           }
-        }
-      }
-    },
-    "/jobs/{modelJobId}": {
-      "get": {
-        "operationId": "getAudioJobStatus",
-        "summary": "Poll provisional audio-processing status",
-        "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
-        "responses": {
-          "200": {
-            "description": "TODO(discovery): define statuses and failure representation",
-            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}
-          }
-        }
-      }
-    },
-    "/jobs/{modelJobId}/result": {
-      "get": {
-        "deprecated": true,
-        "operationId": "getAudioJobResult",
-        "summary": "Discovery placeholder not used by the implemented pipeline",
-        "parameters": [{"$ref": "#/components/parameters/ModelJobId"}],
-        "responses": {
-          "501": {
-            "description": "The implemented handoff uses the pipeline transcription callback instead"
-          }
+        },
+        "x-completion-callback": {
+          "method": "POST",
+          "contentType": "application/json",
+          "correlationHeader": "X-Audio-Model-Job-Id",
+          "payloadSchema": {"$ref": "#/components/schemas/TranscriptionResult"}
         }
       }
     }
   },
   "components": {
-    "parameters": {
-      "ModelJobId": {
-        "name": "modelJobId",
-        "in": "path",
-        "required": true,
-        "description": "TODO(discovery): define identifier constraints",
-        "schema": {"type": "string"}
+    "schemas": {
+      "AudioJobRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pipelineJobId", "audioPath", "callbackUrl"],
+        "properties": {
+          "pipelineJobId": {"type": "string", "minLength": 1},
+          "audioPath": {"type": "string", "minLength": 1, "description": "Absolute path to the locally persisted recording"},
+          "callbackUrl": {"type": "string", "format": "uri"}
+        }
+      },
+      "AudioJobAcknowledgement": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["modelJobId", "status"],
+        "properties": {
+          "modelJobId": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "const": "accepted"}
+        }
+      },
+      "TranscriptionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "jobId", "transcript", "audioMetadata", "languageDetection", "speakers", "quality"],
+        "properties": {
+          "schemaVersion": {"type": "string", "const": "transcription.v1alpha1"},
+          "jobId": {"type": "string", "minLength": 1},
+          "transcript": {"$ref": "#/components/schemas/TranscriptContent"},
+          "audioMetadata": {"$ref": "#/components/schemas/AudioMetadata"},
+          "languageDetection": {"$ref": "#/components/schemas/LanguageDetection"},
+          "speakers": {"type": "array", "items": {"$ref": "#/components/schemas/Speaker"}},
+          "quality": {"$ref": "#/components/schemas/TranscriptionQuality"}
+        }
+      },
+      "TranscriptContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "segments"],
+        "properties": {
+          "text": {"type": "string", "minLength": 1},
+          "segments": {"type": "array", "items": {"$ref": "#/components/schemas/TranscriptSegment"}}
+        }
+      },
+      "TranscriptSegment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "startMs", "endMs", "speakerId", "languages", "text", "confidence"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "startMs": {"type": "integer", "minimum": 0},
+          "endMs": {"type": ["integer", "null"], "minimum": 0},
+          "speakerId": {"type": ["string", "null"]},
+          "languages": {"type": "array", "items": {"type": "string"}},
+          "text": {"type": "string", "minLength": 1},
+          "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+        }
+      },
+      "AudioMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["durationMs"],
+        "properties": {"durationMs": {"type": "integer", "exclusiveMinimum": 0}}
+      },
+      "LanguageDetection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["languages"],
+        "properties": {"languages": {"type": "array", "items": {"$ref": "#/components/schemas/DetectedLanguage"}}}
+      },
+      "DetectedLanguage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "proportion"],
+        "properties": {
+          "code": {"type": "string", "minLength": 2, "maxLength": 16},
+          "proportion": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      },
+      "Speaker": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "displayName", "languages", "speakingTimeProportion"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "displayName": {"type": ["string", "null"]},
+          "languages": {"type": "array", "items": {"type": "string"}},
+          "speakingTimeProportion": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+        }
+      },
+      "TranscriptionQuality": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["transcriptConfidence", "confidenceScale"],
+        "properties": {
+          "transcriptConfidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "confidenceScale": {"type": "string", "const": "ZERO_TO_ONE"}
+        }
       }
     }
   },
-  "x-contract-status": "TODO(discovery): not an implementation contract"
+  "x-contract-status": "Agreed v1alpha1 data shape; transport details remain adapter-owned"
 }

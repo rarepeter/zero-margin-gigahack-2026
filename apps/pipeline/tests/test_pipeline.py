@@ -6,6 +6,7 @@ import os
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from time import monotonic, sleep
 
 import httpx
 import pytest
@@ -13,10 +14,11 @@ from fastapi.testclient import TestClient
 
 from secure_mom_pipeline import api
 from secure_mom_pipeline.audio_service import MockAudioService
+from secure_mom_pipeline.callback_transport import make_in_process_callback_sender
 from secure_mom_pipeline.event_log import EventLog
 from secure_mom_pipeline.intermediate_transformer import (
     IntermediateTransformationError,
-    Utf8IntermediateTransformer,
+    StructuredTranscriptionTransformer,
 )
 from secure_mom_pipeline.job_store import JobStore
 from secure_mom_pipeline.models import (
@@ -61,6 +63,70 @@ def upload(
     )
 
 
+def transcription_document(
+    job_id: str,
+    text: str = "Mock multilingual transcript.",
+    *,
+    confidence: float = 0.91,
+) -> bytes:
+    return json.dumps(
+        {
+            "schemaVersion": "transcription.v1alpha1",
+            "jobId": job_id,
+            "transcript": {
+                "text": text,
+                "segments": [
+                    {
+                        "id": "segment-1",
+                        "startMs": 0,
+                        "endMs": 3000,
+                        "speakerId": "speaker-1",
+                        "languages": ["ro", "ru", "en"],
+                        "text": text,
+                        "confidence": confidence,
+                    }
+                ],
+            },
+            "audioMetadata": {"durationMs": 3000},
+            "languageDetection": {
+                "languages": [
+                    {"code": "ro", "proportion": 0.6},
+                    {"code": "ru", "proportion": 0.3},
+                    {"code": "en", "proportion": 0.1},
+                ]
+            },
+            "speakers": [
+                {
+                    "id": "speaker-1",
+                    "displayName": None,
+                    "languages": ["ro", "ru", "en"],
+                    "speakingTimeProportion": 1.0,
+                }
+            ],
+            "quality": {
+                "transcriptConfidence": confidence,
+                "confidenceScale": "ZERO_TO_ONE",
+            },
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def mom_document(content: str = "Mock Minutes", confidence: float = 0.86) -> bytes:
+    return json.dumps(
+        {
+            "schemaVersion": "mom.v1alpha1",
+            "quality": {
+                "momConfidence": confidence,
+                "confidenceScale": "ZERO_TO_ONE",
+            },
+            "document": {"content": content},
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
 def dispatch_audio(store: JobStore, job_id: str) -> str:
     assert process_one(
         store,
@@ -77,7 +143,7 @@ def push_transcription(
     job_id: str,
     audio_model_job_id: str,
     content: bytes,
-    media_type: str = "application/octet-stream",
+    media_type: str = "application/json",
 ):
     return client.post(
         f"/api/v1/integrations/audio/jobs/{job_id}/transcription",
@@ -138,6 +204,8 @@ def test_upload_persists_bytes_state_and_ordered_events(
     assert (directory / "input/meeting.mp3").read_bytes() == original
     assert not (tmp_path / "unsafe.MP3").exists()
     assert store.read_state(job_id).artifacts.audio == "input/meeting.mp3"
+    assert store.read_state(job_id).submitted_by is not None
+    assert store.read_state(job_id).submitted_by.user_id == "demo-user"
 
     events = store.read_events(job_id)
     assert [event.offset for event in events] == [0, 1, 2]
@@ -149,6 +217,13 @@ def test_upload_persists_bytes_state_and_ordered_events(
     serialized = (directory / "operations.ndjson").read_text(encoding="utf-8")
     assert "unsafe" not in serialized
     assert str(directory) not in serialized
+
+
+def test_upload_openapi_has_no_authentication_parameters() -> None:
+    operation = api.app.openapi()["paths"]["/api/v1/jobs"]["post"]
+    assert "parameters" not in operation
+    request_schema = operation["requestBody"]["content"]["multipart/form-data"]
+    assert "$ref" in request_schema["schema"]
 
 
 @pytest.mark.parametrize(
@@ -203,6 +278,7 @@ def test_status_endpoint_reads_persisted_state(
         "artifacts": {
             "transcriptAvailable": False,
             "momAvailable": False,
+            "reviewContextAvailable": False,
         },
         "error": None,
     }
@@ -313,29 +389,20 @@ def test_event_log_appends_concurrently_and_reads_from_offset(tmp_path: Path) ->
     assert [record.offset for record in event_log.read(from_offset=9)] == [9, 10, 11]
 
 
-@pytest.mark.parametrize(
-    "media_type,source",
-    [
-        ("text/plain", "Bună ziua\nNext line"),
-        ("application/json", '{"transcript":"Bună ziua"}'),
-        ("text/csv", "speaker,text\nAna,Bună ziua"),
-    ],
-)
-def test_transcription_is_preserved_as_txt_and_dispatched(
+def test_structured_transcription_is_preserved_and_text_is_dispatched(
     client: TestClient,
     store: JobStore,
-    media_type: str,
-    source: str,
 ) -> None:
     job_id = upload(client).json()["jobId"]
     audio_model_job_id = dispatch_audio(store, job_id)
+    transcript_text = "Bună ziua. Hello. Здравствуйте."
+    source = transcription_document(job_id, transcript_text)
 
     received = push_transcription(
         client,
         job_id,
         audio_model_job_id,
-        source.encode("utf-8"),
-        media_type,
+        source,
     )
 
     assert received.status_code == 202
@@ -345,8 +412,8 @@ def test_transcription_is_preserved_as_txt_and_dispatched(
         "stage": "transcription_received",
         "replayed": False,
     }
-    source_path = store.job_directory(job_id) / "transcript/source.bin"
-    assert source_path.read_bytes() == source.encode("utf-8")
+    source_path = store.job_directory(job_id) / "transcript/source.json"
+    assert source_path.read_bytes() == source
 
     text_service = RecordingTextService()
     assert process_one(
@@ -361,18 +428,22 @@ def test_transcription_is_preserved_as_txt_and_dispatched(
     assert state.stage == "text_processing"
     assert state.model_jobs.text == "text-job-1"
     assert state.attempts.mom_generation == 1
-    assert state.artifacts.transcript == "transcript/transcript.txt"
+    assert state.artifacts.transcript == "transcript/source.json"
     assert state.artifacts.text_input is not None
     assert state.artifacts.text_input.media_type == "text/plain; charset=utf-8"
-    transcript_path = store.job_directory(job_id) / state.artifacts.transcript
-    assert transcript_path.read_text(encoding="utf-8") == source
+    transcript_path = store.job_directory(job_id) / state.artifacts.text_input.path
+    assert transcript_path.read_text(encoding="utf-8") == transcript_text
     assert text_service.submissions == [
-        (job_id, f"{job_id}:mom-generation:1", source.encode("utf-8"))
+        (job_id, f"{job_id}:mom-generation:1", transcript_text.encode("utf-8"))
     ]
     assert client.get(f"/api/v1/jobs/{job_id}").json()["artifacts"] == {
         "transcriptAvailable": True,
         "momAvailable": False,
+        "reviewContextAvailable": False,
     }
+    assert client.get(f"/api/v1/jobs/{job_id}/transcript").json() == json.loads(
+        source
+    )
 
 
 def test_transcription_push_is_idempotent_and_rejects_conflicts(
@@ -382,20 +453,29 @@ def test_transcription_push_is_idempotent_and_rejects_conflicts(
     job_id = upload(client).json()["jobId"]
     audio_model_job_id = dispatch_audio(store, job_id)
 
-    wrong_model = push_transcription(client, job_id, "wrong", b"hello")
+    first_payload = transcription_document(job_id, "hello")
+    conflicting_payload = transcription_document(job_id, "different")
+    wrong_model = push_transcription(client, job_id, "wrong", first_payload)
     assert wrong_model.status_code == 409
     assert wrong_model.json()["error"]["code"] == "TRANSCRIPTION_CORRELATION_MISMATCH"
 
-    first = push_transcription(client, job_id, audio_model_job_id, b"hello")
-    replay = push_transcription(client, job_id, audio_model_job_id, b"hello")
-    conflict = push_transcription(client, job_id, audio_model_job_id, b"different")
+    first = push_transcription(client, job_id, audio_model_job_id, first_payload)
+    replay = push_transcription(client, job_id, audio_model_job_id, first_payload)
+    conflict = push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        conflicting_payload,
+    )
 
     assert first.status_code == 202
     assert replay.status_code == 200
     assert replay.json()["replayed"] is True
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "TRANSCRIPTION_CONFLICT"
-    assert (store.job_directory(job_id) / "transcript/source.bin").read_bytes() == b"hello"
+    assert (
+        store.job_directory(job_id) / "transcript/source.json"
+    ).read_bytes() == first_payload
 
 
 def test_transcription_push_rejects_empty_and_oversized_documents(
@@ -411,52 +491,66 @@ def test_transcription_push_rejects_empty_and_oversized_documents(
     assert empty.json()["error"]["code"] == "EMPTY_TRANSCRIPTION"
 
     monkeypatch.setattr(api, "MAX_TRANSCRIPTION_BYTES", 3)
-    oversized = push_transcription(client, job_id, audio_model_job_id, b"four")
+    oversized = push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        transcription_document(job_id),
+    )
     assert oversized.status_code == 413
     assert oversized.json()["error"]["code"] == "TRANSCRIPTION_TOO_LARGE"
     assert store.read_state(job_id).stage == "audio_processing"
 
 
-def test_invalid_utf8_fails_transformation_without_losing_source(
+def test_transcription_push_rejects_invalid_contract_and_media_type(
     client: TestClient,
     store: JobStore,
 ) -> None:
     job_id = upload(client).json()["jobId"]
     audio_model_job_id = dispatch_audio(store, job_id)
-    assert push_transcription(
+    invalid = push_transcription(
         client,
         job_id,
         audio_model_job_id,
         b"\xff\xfe",
-    ).status_code == 202
-
-    assert process_one(
-        store,
-        MockAudioService(),
-        logging.getLogger("test.invalid-utf8"),
+    )
+    wrong_media = push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        transcription_document(job_id),
+        "text/plain",
+    )
+    mismatched_job = push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        transcription_document("00000000-0000-0000-0000-000000000000"),
     )
 
-    state = store.read_state(job_id)
-    assert state.status == JobStatus.FAILED
-    assert state.stage == "transcript_transform"
-    assert state.error is not None
-    assert state.error.code == "TRANSCRIPT_TRANSFORM_FAILED"
-    assert (store.job_directory(job_id) / "transcript/source.bin").read_bytes() == b"\xff\xfe"
-    assert not (store.job_directory(job_id) / "transcript/transcript.txt").exists()
+    assert invalid.status_code == 400
+    assert invalid.json()["error"]["code"] == "INVALID_TRANSCRIPTION_JSON"
+    assert wrong_media.status_code == 415
+    assert wrong_media.json()["error"]["code"] == (
+        "UNSUPPORTED_TRANSCRIPTION_MEDIA_TYPE"
+    )
+    assert mismatched_job.status_code == 409
+    assert mismatched_job.json()["error"]["code"] == "TRANSCRIPTION_JOB_MISMATCH"
+    assert store.read_state(job_id).stage == "audio_processing"
 
 
-def test_utf8_transformer_preserves_decoded_characters() -> None:
-    source = '{"speaker":"Ana","text":"Bună"}\n'
-    result = Utf8IntermediateTransformer().transform(
+def test_structured_transformer_extracts_complete_transcript_text() -> None:
+    source = transcription_document("pipeline-job", "Bună ziua")
+    result = StructuredTranscriptionTransformer().transform(
         TranscriptionSource(
-            data=source.encode("utf-8"),
+            data=source,
             media_type="application/json",
         )
     )
-    assert result.text == source
+    assert result.text == "Bună ziua"
 
     with pytest.raises(IntermediateTransformationError):
-        Utf8IntermediateTransformer().transform(
+        StructuredTranscriptionTransformer().transform(
             TranscriptionSource(data=b"\xff", media_type="application/octet-stream")
         )
 
@@ -487,7 +581,7 @@ def test_text_dispatch_retries_one_transient_connection_failure(
         client,
         job_id,
         audio_model_job_id,
-        b"transcript",
+        transcription_document(job_id, "transcript"),
     ).status_code == 202
     service = FlakyTextService()
 
@@ -525,7 +619,7 @@ def test_worker_resumes_from_persisted_text_input_checkpoint(
         client,
         job_id,
         audio_model_job_id,
-        b"checkpoint",
+        transcription_document(job_id, "checkpoint"),
     ).status_code == 202
 
     with pytest.raises(KeyboardInterrupt, match="simulated process stop"):
@@ -614,9 +708,9 @@ def test_failed_atomic_artifact_replace_preserves_previous_file(
     directory = store.job_directory(job_id)
     store.write_artifact_at(
         directory,
-        relative_path="transcript/source.bin",
+        relative_path="transcript/source.json",
         data=b"original",
-        media_type="application/octet-stream",
+        media_type="application/json",
     )
 
     def fail_replace(source: Path, destination: Path) -> None:
@@ -627,13 +721,13 @@ def test_failed_atomic_artifact_replace_preserves_previous_file(
     with pytest.raises(OSError, match="simulated artifact replace failure"):
         store.write_artifact_at(
             directory,
-            relative_path="transcript/source.bin",
+            relative_path="transcript/source.json",
             data=b"replacement",
-            media_type="application/octet-stream",
+            media_type="application/json",
         )
 
-    assert (directory / "transcript/source.bin").read_bytes() == b"original"
-    assert not list((directory / "transcript").glob(".source.bin-*.tmp"))
+    assert (directory / "transcript/source.json").read_bytes() == b"original"
+    assert not list((directory / "transcript").glob(".source.json-*.tmp"))
 
 
 def test_worker_resumes_transcription_received_after_store_restart(
@@ -646,7 +740,7 @@ def test_worker_resumes_transcription_received_after_store_restart(
         client,
         job_id,
         audio_model_job_id,
-        b"restart checkpoint",
+        transcription_document(job_id, "restart checkpoint"),
     ).status_code == 202
 
     restarted_store = JobStore(store.root)
@@ -698,7 +792,7 @@ def test_generating_job_does_not_block_next_queued_job(
         client,
         first,
         first_audio_job,
-        b"first transcript",
+        transcription_document(first, "first transcript"),
     ).status_code == 202
     assert process_one(
         store,
@@ -746,8 +840,14 @@ def test_mock_audio_service_pushes_transcription_callback_after_delay(
         "/integrations/audio/jobs/pipeline-job/transcription"
     )
     assert request.headers["x-audio-model-job-id"] == submission.model_job_id
-    assert request.headers["content-type"] == "text/plain; charset=utf-8"
-    assert request.content == b"Mock transcription for pipeline job pipeline-job."
+    assert request.headers["content-type"] == "application/json"
+    document = json.loads(request.content)
+    assert document["schemaVersion"] == "transcription.v1alpha1"
+    assert document["jobId"] == "pipeline-job"
+    assert document["quality"]["transcriptConfidence"] == 0.91
+    assert document["transcript"]["text"] == (
+        "Mock transcription for pipeline job pipeline-job."
+    )
 
     service.ensure_callback("pipeline-job", submission.model_job_id)
     assert len(requests) == 1
@@ -763,7 +863,7 @@ def test_mom_callback_persists_json_and_advances_to_review(
         client,
         job_id,
         audio_model_job_id,
-        b"meeting transcript",
+        transcription_document(job_id, "meeting transcript"),
     ).status_code == 202
     assert process_one(
         store,
@@ -773,7 +873,7 @@ def test_mom_callback_persists_json_and_advances_to_review(
     )
     assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
 
-    payload = b'{"schemaVersion":"mock-v1","document":{"content":"Mock Minutes"}}'
+    payload = mom_document()
     received = push_mom(client, job_id, "text-job-1", payload)
 
     assert received.status_code == 202
@@ -788,15 +888,45 @@ def test_mom_callback_persists_json_and_advances_to_review(
     assert state.stage == "review_ready"
     assert state.artifacts.mom == "mom/draft.json"
     assert state.artifacts.mom_output is not None
+    assert state.artifacts.review_context is not None
     assert (store.job_directory(job_id) / "mom/draft.json").read_bytes() == payload
     assert client.get(f"/api/v1/jobs/{job_id}").json()["artifacts"] == {
         "transcriptAvailable": True,
         "momAvailable": True,
+        "reviewContextAvailable": True,
     }
     assert client.get(f"/api/v1/jobs/{job_id}/mom").json() == json.loads(payload)
+    review_context = client.get(f"/api/v1/jobs/{job_id}/review-context")
+    assert review_context.status_code == 200
+    context = review_context.json()
+    assert context["submittedBy"] == {
+        "userId": "demo-user",
+        "displayName": "Demo User",
+    }
+    assert "email" not in context["submittedBy"]
+    assert context["quality"] == {
+        "transcriptConfidence": 0.91,
+        "momConfidence": 0.86,
+        "overallConfidence": None,
+        "confidenceScale": "ZERO_TO_ONE",
+    }
+    assert context["artifacts"]["transcript"]["href"].endswith(
+        f"/jobs/{job_id}/transcript"
+    )
+    persisted_context = json.loads(
+        (store.job_directory(job_id) / "review/context.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert persisted_context["submittedBy"]["email"] == "demo@medpark.test"
 
     replay = push_mom(client, job_id, "text-job-1", payload)
-    conflict = push_mom(client, job_id, "text-job-1", b'{"different":true}')
+    conflict = push_mom(
+        client,
+        job_id,
+        "text-job-1",
+        mom_document("Different Minutes"),
+    )
     assert replay.status_code == 200
     assert replay.json()["replayed"] is True
     assert conflict.status_code == 409
@@ -813,7 +943,7 @@ def test_mom_callback_validates_contract(
         client,
         job_id,
         audio_model_job_id,
-        b"meeting transcript",
+        transcription_document(job_id, "meeting transcript"),
     ).status_code == 202
     assert process_one(
         store,
@@ -822,7 +952,7 @@ def test_mom_callback_validates_contract(
         RecordingTextService(),
     )
 
-    wrong_model = push_mom(client, job_id, "wrong", b'{"a":1,"b":2}')
+    wrong_model = push_mom(client, job_id, "wrong", mom_document())
     invalid_json = push_mom(client, job_id, "text-job-1", b"not json")
     wrong_shape = push_mom(client, job_id, "text-job-1", b"[]")
     wrong_media = push_mom(
@@ -844,7 +974,7 @@ def test_mom_callback_validates_contract(
     assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
 
 
-def test_mock_text_service_pushes_two_field_mom_callback_after_delay(
+def test_mock_text_service_pushes_versioned_mom_callback_after_delay(
     tmp_path: Path,
 ) -> None:
     received = Event()
@@ -872,11 +1002,62 @@ def test_mock_text_service_pushes_two_field_mom_callback_after_delay(
     assert request.headers["x-text-model-job-id"] == submission.model_job_id
     assert request.headers["content-type"] == "application/json"
     document = json.loads(request.content)
-    assert list(document) == ["schemaVersion", "document"]
+    assert list(document) == ["schemaVersion", "quality", "document"]
     assert document == {
-        "schemaVersion": "mock-v1",
+        "schemaVersion": "mom.v1alpha1",
+        "quality": {
+            "momConfidence": 0.86,
+            "confidenceScale": "ZERO_TO_ONE",
+        },
         "document": {"content": "Mock Minutes of Meeting"},
     }
 
     service.ensure_callback("pipeline-job", submission.model_job_id)
     assert len(requests) == 1
+
+
+def test_in_process_mock_callbacks_complete_without_loopback_network(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    callback_sender = make_in_process_callback_sender(api.app)
+    audio_service = MockAudioService(
+        "http://unreachable.local/api/v1/integrations/audio/jobs/"
+        "{job_id}/transcription",
+        callback_delay_seconds=0.02,
+        callback_sender=callback_sender,
+    )
+    text_service = MockTextService(
+        "http://unreachable.local/api/v1/integrations/text/jobs/{job_id}/mom",
+        callback_delay_seconds=0.02,
+        callback_sender=callback_sender,
+    )
+
+    assert process_one(
+        store,
+        audio_service,
+        logging.getLogger("test.in-process.audio"),
+        text_service,
+    )
+
+    deadline = monotonic() + 2
+    while store.read_state(job_id).stage != "transcription_received":
+        assert monotonic() < deadline
+        sleep(0.01)
+
+    assert process_one(
+        store,
+        audio_service,
+        logging.getLogger("test.in-process.text"),
+        text_service,
+    )
+
+    while store.read_state(job_id).status != JobStatus.AWAITING_REVIEW:
+        assert monotonic() < deadline
+        sleep(0.01)
+
+    state = store.read_state(job_id)
+    assert state.stage == "review_ready"
+    assert state.artifacts.mom_output is not None
+    assert state.artifacts.review_context is not None

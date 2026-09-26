@@ -11,11 +11,12 @@ from pathlib import Path
 from typing import Iterator, Protocol
 
 from .audio_service import AudioSubmissionError, MockAudioService
+from .callback_transport import CallbackSender, make_in_process_callback_sender
 from .config import get_settings
 from .intermediate_transformer import (
     IntermediateTransformationError,
     IntermediateTransformer,
-    Utf8IntermediateTransformer,
+    StructuredTranscriptionTransformer,
 )
 from .job_store import InvalidJobStateError, JobStore
 from .logging_config import configure_logging
@@ -437,7 +438,6 @@ def _transform_transcription(
 
         artifacts = state.artifacts.model_copy(
             update={
-                "transcript": text_descriptor.path,
                 "text_input": text_descriptor,
             }
         )
@@ -486,7 +486,7 @@ def process_one(
 ) -> bool:
     """Advance one job through all immediately available checkpoints."""
     text_service = text_service or MockTextService()
-    transformer = transformer or Utf8IntermediateTransformer()
+    transformer = transformer or StructuredTranscriptionTransformer()
 
     with _exclusive_worker(store) as acquired:
         if not acquired:
@@ -550,6 +550,19 @@ def run() -> None:
     settings = get_settings()
     logger = configure_logging(settings.log_file)
     store = JobStore(settings.storage_root)
+    callback_sender: CallbackSender | None
+    if settings.mock_callback_transport == "in_process":
+        # Import lazily so worker unit tests and adapter modules remain
+        # independent from the FastAPI control surface.
+        from .api import app
+
+        callback_sender = make_in_process_callback_sender(app)
+    elif settings.mock_callback_transport == "http":
+        callback_sender = None
+    else:
+        raise ValueError(
+            "PIPELINE_MOCK_CALLBACK_TRANSPORT must be 'in_process' or 'http'"
+        )
     callback_url_template = (
         f"{settings.mock_audio_callback_base_url.rstrip('/')}"
         f"{settings.api_prefix}{settings.routes.transcription_result}"
@@ -557,6 +570,7 @@ def run() -> None:
     audio_service = MockAudioService(
         callback_url_template=callback_url_template,
         callback_delay_seconds=settings.mock_audio_callback_delay_seconds,
+        callback_sender=callback_sender,
     )
     text_callback_url_template = (
         f"{settings.mock_text_callback_base_url.rstrip('/')}"
@@ -565,8 +579,9 @@ def run() -> None:
     text_service = MockTextService(
         callback_url_template=text_callback_url_template,
         callback_delay_seconds=settings.mock_text_callback_delay_seconds,
+        callback_sender=callback_sender,
     )
-    transformer = Utf8IntermediateTransformer()
+    transformer = StructuredTranscriptionTransformer()
 
     if args.once:
         process_one(store, audio_service, logger, text_service, transformer)

@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from time import monotonic
 from typing import Annotated
 
 import uvicorn
 from fastapi import FastAPI, File, Header, Request, UploadFile, status
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from .config import get_settings
 from .job_store import InvalidJobStateError, JobNotFoundError, JobStore
 from .logging_config import configure_logging
 from .models import (
+    ArtifactLink,
     CreateJobResponse,
     ErrorDetail,
     ErrorEnvelope,
@@ -23,7 +26,18 @@ from .models import (
     JobState,
     JobStatus,
     JobStatusResponse,
+    MeetingMetadata,
+    MomResult,
     MomReceipt,
+    ProcessingSummary,
+    ReviewArtifactLinks,
+    ReviewContext,
+    ReviewContextResponse,
+    ReviewQuality,
+    ReviewSourceRecording,
+    SourceRecording,
+    SubmittedBy,
+    TranscriptionResult,
     TranscriptionReceipt,
     utc_now,
 )
@@ -47,7 +61,7 @@ MOCK_OPENAPI = {
 
 app = FastAPI(
     title="Secure MOM Pipeline API",
-    version="0.4.0-provisional",
+    version="0.5.0-provisional",
     description=(
         "Filesystem-backed upload, transcription receipt, transformation, and "
         "text-service dispatch and persisted draft MoM callback pipeline."
@@ -162,6 +176,9 @@ async def create_job(
             )
 
         created_at = utc_now()
+        original_file_name = (audio.filename or f"meeting{extension}").replace(
+            "\\", "/"
+        ).rsplit("/", 1)[-1]
         state_model = JobState(
             job_id=job_id,
             status=JobStatus.QUEUED,
@@ -169,6 +186,16 @@ async def create_job(
             created_at=created_at,
             updated_at=created_at,
             artifacts=JobArtifacts(audio=relative_audio_path.as_posix()),
+            submitted_by=SubmittedBy(
+                user_id=settings.demo_submitter_user_id,
+                display_name=settings.demo_submitter_display_name,
+                email=settings.demo_submitter_email,
+            ),
+            source_recording=SourceRecording(
+                original_file_name=original_file_name,
+                media_type=audio.content_type or "application/octet-stream",
+                size_bytes=byte_count,
+            ),
         )
         job_store.append_event_at(
             staging_directory,
@@ -258,6 +285,7 @@ def get_job(job_id: str) -> JobStatusResponse | JSONResponse:
         404: {"model": ErrorEnvelope},
         409: {"model": ErrorEnvelope},
         413: {"model": ErrorEnvelope},
+        415: {"model": ErrorEnvelope},
         500: {"model": ErrorEnvelope},
     },
     summary="Persist a completed transcription from the audio-to-text service",
@@ -265,14 +293,9 @@ def get_job(job_id: str) -> JobStatusResponse | JSONResponse:
         "requestBody": {
             "required": True,
             "content": {
-                "application/octet-stream": {
-                    "schema": {"type": "string", "format": "binary"}
-                },
-                "text/plain": {"schema": {"type": "string", "format": "binary"}},
                 "application/json": {
-                    "schema": {"type": "string", "format": "binary"}
-                },
-                "text/csv": {"schema": {"type": "string", "format": "binary"}},
+                    "schema": {"$ref": "#/components/schemas/TranscriptionResult"}
+                }
             },
         }
     },
@@ -285,6 +308,15 @@ async def receive_transcription(
         Header(alias="X-Audio-Model-Job-Id", min_length=1),
     ],
 ) -> TranscriptionReceipt | JSONResponse:
+    media_type = request.headers.get("content-type", "")
+    if media_type.split(";", 1)[0].strip().lower() != "application/json":
+        return _error(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            "UNSUPPORTED_TRANSCRIPTION_MEDIA_TYPE",
+            "The transcription result must use application/json.",
+            False,
+        )
+
     payload = bytearray()
     async for chunk in request.stream():
         payload.extend(chunk)
@@ -304,7 +336,22 @@ async def receive_transcription(
         )
 
     data = bytes(payload)
-    media_type = request.headers.get("content-type", "application/octet-stream")
+    try:
+        transcription = TranscriptionResult.model_validate_json(data)
+    except (ValidationError, ValueError):
+        return _error(
+            status.HTTP_400_BAD_REQUEST,
+            "INVALID_TRANSCRIPTION_JSON",
+            "The transcription result does not match transcription.v1alpha1.",
+            False,
+        )
+    if transcription.job_id != job_id:
+        return _error(
+            status.HTTP_409_CONFLICT,
+            "TRANSCRIPTION_JOB_MISMATCH",
+            "The transcription body does not match the requested pipeline job.",
+            False,
+        )
     try:
         with job_store.locked_job(job_id) as directory:
             state_model = job_store.read_state(job_id)
@@ -319,7 +366,7 @@ async def receive_transcription(
             existing = state_model.artifacts.transcription_source
             if existing is not None:
                 existing_data = job_store.read_artifact_at(directory, existing)
-                if existing_data == data and existing.media_type == media_type:
+                if existing_data == data and existing.media_type == "application/json":
                     job_store.append_event_at(
                         directory,
                         job_id=job_id,
@@ -361,12 +408,15 @@ async def receive_transcription(
 
             descriptor = job_store.write_artifact_at(
                 directory,
-                relative_path="transcript/source.bin",
+                relative_path="transcript/source.json",
                 data=data,
-                media_type=media_type,
+                media_type="application/json",
             )
             artifacts = state_model.artifacts.model_copy(
-                update={"transcription_source": descriptor}
+                update={
+                    "transcript": descriptor.path,
+                    "transcription_source": descriptor,
+                }
             )
             received_state = state_model.model_copy(
                 update={
@@ -436,6 +486,72 @@ async def receive_transcription(
     )
 
 
+def _build_review_context(
+    *,
+    state_model: JobState,
+    transcription: TranscriptionResult,
+    mom: MomResult,
+    completed_at: datetime,
+) -> ReviewContext:
+    if state_model.submitted_by is None or state_model.source_recording is None:
+        raise InvalidJobStateError("The job is missing submission metadata")
+    elapsed_ms = max(
+        0,
+        round((completed_at - state_model.created_at).total_seconds() * 1000),
+    )
+    return ReviewContext(
+        schema_version="review-context.v1alpha1",
+        job_id=state_model.job_id,
+        status=JobStatus.AWAITING_REVIEW,
+        stage="review_ready",
+        created_at=state_model.created_at,
+        updated_at=completed_at,
+        submitted_by=state_model.submitted_by,
+        source_recording=ReviewSourceRecording(
+            original_file_name=state_model.source_recording.original_file_name,
+            media_type=state_model.source_recording.media_type,
+            size_bytes=state_model.source_recording.size_bytes,
+            duration_ms=transcription.audio_metadata.duration_ms,
+        ),
+        processing=ProcessingSummary(
+            started_at=state_model.created_at,
+            completed_at=completed_at,
+            elapsed_ms=elapsed_ms,
+        ),
+        meeting_metadata=MeetingMetadata(
+            duration_ms=transcription.audio_metadata.duration_ms,
+            speaker_count=len(transcription.speakers),
+            named_speaker_count=sum(
+                speaker.display_name is not None for speaker in transcription.speakers
+            ),
+            languages=transcription.language_detection.languages,
+        ),
+        speakers=transcription.speakers,
+        quality=ReviewQuality(
+            transcript_confidence=(
+                transcription.quality.transcript_confidence
+            ),
+            mom_confidence=mom.quality.mom_confidence,
+            overall_confidence=None,
+            confidence_scale="ZERO_TO_ONE",
+        ),
+        artifacts=ReviewArtifactLinks(
+            mom=ArtifactLink(
+                available=True,
+                href=(
+                    f"{settings.api_prefix}{settings.routes.mom}"
+                ).format(job_id=state_model.job_id),
+            ),
+            transcript=ArtifactLink(
+                available=True,
+                href=(
+                    f"{settings.api_prefix}{settings.routes.transcript}"
+                ).format(job_id=state_model.job_id),
+            ),
+        ),
+    )
+
+
 @app.post(
     f"{settings.api_prefix}{settings.routes.mom_result}",
     status_code=status.HTTP_202_ACCEPTED,
@@ -455,7 +571,7 @@ async def receive_transcription(
             "required": True,
             "content": {
                 "application/json": {
-                    "schema": {"type": "object", "additionalProperties": True}
+                    "schema": {"$ref": "#/components/schemas/MomResult"}
                 }
             },
         }
@@ -498,19 +614,12 @@ async def receive_mom(
 
     data = bytes(payload)
     try:
-        document = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        mom = MomResult.model_validate_json(data)
+    except (ValidationError, ValueError):
         return _error(
             status.HTTP_400_BAD_REQUEST,
             "INVALID_MOM_JSON",
-            "The draft MoM must be a valid UTF-8 JSON object.",
-            False,
-        )
-    if not isinstance(document, dict):
-        return _error(
-            status.HTTP_400_BAD_REQUEST,
-            "INVALID_MOM_JSON",
-            "The draft MoM must be a JSON object.",
+            "The draft MoM does not match mom.v1alpha1.",
             False,
         )
 
@@ -568,20 +677,53 @@ async def receive_mom(
                     True,
                 )
 
+            transcription_descriptor = state_model.artifacts.transcription_source
+            if transcription_descriptor is None:
+                raise InvalidJobStateError("The transcription artifact is missing")
+            transcription = TranscriptionResult.model_validate_json(
+                job_store.read_artifact_at(directory, transcription_descriptor)
+            )
+            completed_at = utc_now()
+            review_context = _build_review_context(
+                state_model=state_model,
+                transcription=transcription,
+                mom=mom,
+                completed_at=completed_at,
+            )
+            review_context_data = (
+                json.dumps(
+                    review_context.model_dump(mode="json", by_alias=True),
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            ).encode("utf-8")
+
             descriptor = job_store.write_artifact_at(
                 directory,
                 relative_path="mom/draft.json",
                 data=data,
                 media_type="application/json",
             )
+            review_descriptor = job_store.write_artifact_at(
+                directory,
+                relative_path="review/context.json",
+                data=review_context_data,
+                media_type="application/json",
+            )
             artifacts = state_model.artifacts.model_copy(
-                update={"mom": descriptor.path, "mom_output": descriptor}
+                update={
+                    "mom": descriptor.path,
+                    "mom_output": descriptor,
+                    "review_context": review_descriptor,
+                }
             )
             review_state = state_model.model_copy(
                 update={
                     "status": JobStatus.AWAITING_REVIEW,
                     "stage": "review_ready",
-                    "updated_at": utc_now(),
+                    "updated_at": completed_at,
                     "artifacts": artifacts,
                     "error": None,
                 }
@@ -640,19 +782,49 @@ async def receive_mom(
 
 @app.get(
     f"{settings.api_prefix}{settings.routes.transcript}",
-    response_class=PlainTextResponse,
-    openapi_extra=MOCK_OPENAPI,
-    summary="Trigger mock transcript read",
+    response_model=TranscriptionResult,
+    responses={
+        404: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope},
+        500: {"model": ErrorEnvelope},
+    },
+    summary="Read the persisted structured transcription result",
 )
-def get_transcript(job_id: str) -> PlainTextResponse:
-    del job_id
-    _log_trigger("get_transcript")
-    return PlainTextResponse("TODO(discovery): dummy transcript response")
+def get_transcript(job_id: str) -> TranscriptionResult | JSONResponse:
+    try:
+        state_model = job_store.read_state(job_id)
+        descriptor = state_model.artifacts.transcription_source
+        if descriptor is None:
+            return _error(
+                status.HTTP_409_CONFLICT,
+                "ARTIFACT_NOT_READY",
+                "The transcription is not available yet.",
+                True,
+            )
+        data = job_store.read_artifact_at(job_store.job_directory(job_id), descriptor)
+        transcription = TranscriptionResult.model_validate_json(data)
+    except JobNotFoundError:
+        return _error(
+            status.HTTP_404_NOT_FOUND,
+            "JOB_NOT_FOUND",
+            "The requested job does not exist.",
+            False,
+        )
+    except (InvalidJobStateError, ValidationError, ValueError, OSError):
+        logger.error("event=transcript_artifact_invalid job_id=%s", job_id)
+        return _error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "TRANSCRIPT_ARTIFACT_INVALID",
+            "The persisted transcription is invalid.",
+            False,
+        )
+    logger.info("event=transcript_read job_id=%s", job_id)
+    return transcription
 
 
 @app.get(
     f"{settings.api_prefix}{settings.routes.mom}",
-    response_model=None,
+    response_model=MomResult,
     responses={
         404: {"model": ErrorEnvelope},
         409: {"model": ErrorEnvelope},
@@ -660,7 +832,7 @@ def get_transcript(job_id: str) -> PlainTextResponse:
     },
     summary="Read the persisted draft MoM JSON",
 )
-def get_mom(job_id: str) -> JSONResponse:
+def get_mom(job_id: str) -> MomResult | JSONResponse:
     try:
         state_model = job_store.read_state(job_id)
         descriptor = state_model.artifacts.mom_output
@@ -673,7 +845,7 @@ def get_mom(job_id: str) -> JSONResponse:
             )
         directory = job_store.job_directory(job_id)
         data = job_store.read_artifact_at(directory, descriptor)
-        document = json.loads(data.decode("utf-8"))
+        document = MomResult.model_validate_json(data)
     except JobNotFoundError:
         return _error(
             status.HTTP_404_NOT_FOUND,
@@ -681,7 +853,7 @@ def get_mom(job_id: str) -> JSONResponse:
             "The requested job does not exist.",
             False,
         )
-    except (InvalidJobStateError, UnicodeDecodeError, json.JSONDecodeError, OSError):
+    except (InvalidJobStateError, ValidationError, ValueError, OSError):
         logger.error("event=mom_artifact_invalid job_id=%s", job_id)
         return _error(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -690,7 +862,49 @@ def get_mom(job_id: str) -> JSONResponse:
             False,
         )
     logger.info("event=mom_read job_id=%s", job_id)
-    return JSONResponse(content=document)
+    return document
+
+
+@app.get(
+    f"{settings.api_prefix}{settings.routes.review_context}",
+    response_model=ReviewContextResponse,
+    responses={
+        404: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope},
+        500: {"model": ErrorEnvelope},
+    },
+    summary="Read compact metadata for the review-ready portal view",
+)
+def get_review_context(job_id: str) -> ReviewContextResponse | JSONResponse:
+    try:
+        state_model = job_store.read_state(job_id)
+        descriptor = state_model.artifacts.review_context
+        if descriptor is None:
+            return _error(
+                status.HTTP_409_CONFLICT,
+                "ARTIFACT_NOT_READY",
+                "The review context is not available yet.",
+                True,
+            )
+        data = job_store.read_artifact_at(job_store.job_directory(job_id), descriptor)
+        context = ReviewContext.model_validate_json(data)
+    except JobNotFoundError:
+        return _error(
+            status.HTTP_404_NOT_FOUND,
+            "JOB_NOT_FOUND",
+            "The requested job does not exist.",
+            False,
+        )
+    except (InvalidJobStateError, ValidationError, ValueError, OSError):
+        logger.error("event=review_context_artifact_invalid job_id=%s", job_id)
+        return _error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "REVIEW_CONTEXT_ARTIFACT_INVALID",
+            "The persisted review context is invalid.",
+            False,
+        )
+    logger.info("event=review_context_read job_id=%s", job_id)
+    return ReviewContextResponse.from_context(context)
 
 
 @app.post(

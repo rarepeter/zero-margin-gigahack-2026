@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from collections.abc import Mapping
 from threading import Lock, Timer
 from pathlib import Path
 from typing import Final
@@ -11,11 +13,12 @@ from uuid import uuid4
 
 import httpx
 
+from .callback_transport import CallbackSender
 from .models import AudioSubmission
 
 
 logger = logging.getLogger("secure_mom_pipeline")
-MOCK_TRANSCRIPTION_MEDIA_TYPE: Final = "text/plain; charset=utf-8"
+MOCK_TRANSCRIPTION_MEDIA_TYPE: Final = "application/json"
 
 
 class AudioSubmissionError(RuntimeError):
@@ -31,10 +34,12 @@ class MockAudioService:
         callback_delay_seconds: float = 5.0,
         *,
         transport: httpx.BaseTransport | None = None,
+        callback_sender: CallbackSender | None = None,
     ) -> None:
         self.callback_url_template = callback_url_template
         self.callback_delay_seconds = callback_delay_seconds
         self.transport = transport
+        self.callback_sender = callback_sender
         self._scheduled: set[tuple[str, str]] = set()
         self._schedule_lock = Lock()
 
@@ -78,38 +83,85 @@ class MockAudioService:
         callback_succeeded = False
         try:
             callback_url = self.callback_url_template.format(job_id=pipeline_job_id)
-            transcription = (
-                f"Mock transcription for pipeline job {pipeline_job_id}."
-            ).encode("utf-8")
-            with httpx.Client(timeout=5.0, transport=self.transport) as client:
-                response = client.post(
-                    callback_url,
-                    content=transcription,
-                    headers={
-                        "Content-Type": MOCK_TRANSCRIPTION_MEDIA_TYPE,
-                        "X-Audio-Model-Job-Id": model_job_id,
+            text = f"Mock transcription for pipeline job {pipeline_job_id}."
+            transcription = json.dumps(
+                {
+                    "schemaVersion": "transcription.v1alpha1",
+                    "jobId": pipeline_job_id,
+                    "transcript": {
+                        "text": text,
+                        "segments": [
+                            {
+                                "id": "segment-1",
+                                "startMs": 0,
+                                "endMs": 3000,
+                                "speakerId": "speaker-1",
+                                "languages": ["en"],
+                                "text": text,
+                                "confidence": 0.94,
+                            }
+                        ],
                     },
+                    "audioMetadata": {"durationMs": 3000},
+                    "languageDetection": {
+                        "languages": [{"code": "en", "proportion": 1.0}]
+                    },
+                    "speakers": [
+                        {
+                            "id": "speaker-1",
+                            "displayName": None,
+                            "languages": ["en"],
+                            "speakingTimeProportion": 1.0,
+                        }
+                    ],
+                    "quality": {
+                        "transcriptConfidence": 0.91,
+                        "confidenceScale": "ZERO_TO_ONE",
+                    },
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            headers: Mapping[str, str] = {
+                "Content-Type": MOCK_TRANSCRIPTION_MEDIA_TYPE,
+                "X-Audio-Model-Job-Id": model_job_id,
+            }
+            if self.callback_sender is not None:
+                status_code = self.callback_sender(
+                    callback_url,
+                    transcription,
+                    headers,
                 )
-            callback_succeeded = 200 <= response.status_code < 300
+            else:
+                with httpx.Client(timeout=5.0, transport=self.transport) as client:
+                    response = client.post(
+                        callback_url,
+                        content=transcription,
+                        headers=headers,
+                    )
+                status_code = response.status_code
+            callback_succeeded = 200 <= status_code < 300
             if callback_succeeded:
                 logger.info(
                     "event=mock_audio_callback_accepted job_id=%s model_job_id=%s status_code=%d",
                     pipeline_job_id,
                     model_job_id,
-                    response.status_code,
+                    status_code,
                 )
             else:
                 logger.error(
                     "event=mock_audio_callback_rejected job_id=%s model_job_id=%s status_code=%d",
                     pipeline_job_id,
                     model_job_id,
-                    response.status_code,
+                    status_code,
                 )
-        except (httpx.TransportError, ValueError):
+        except (httpx.TransportError, RuntimeError, ValueError) as exc:
             logger.error(
-                "event=mock_audio_callback_failed job_id=%s model_job_id=%s",
+                "event=mock_audio_callback_failed job_id=%s model_job_id=%s "
+                "error_type=%s",
                 pipeline_job_id,
                 model_job_id,
+                type(exc).__name__,
             )
         finally:
             if not callback_succeeded:

@@ -7,6 +7,10 @@
             "title": "Momavailable",
             "type": "boolean"
           },
+          "reviewContextAvailable": {
+            "title": "Reviewcontextavailable",
+            "type": "boolean"
+          },
           "transcriptAvailable": {
             "title": "Transcriptavailable",
             "type": "boolean"
@@ -14,9 +18,43 @@
         },
         "required": [
           "transcriptAvailable",
-          "momAvailable"
+          "momAvailable",
+          "reviewContextAvailable"
         ],
         "title": "ArtifactAvailability",
+        "type": "object"
+      },
+      "ArtifactLink": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "href": {
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": [
+          "available",
+          "href"
+        ],
+        "title": "ArtifactLink",
+        "type": "object"
+      },
+      "AudioMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "durationMs": {
+            "exclusiveMinimum": 0.0,
+            "title": "Durationms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "durationMs"
+        ],
+        "title": "AudioMetadata",
         "type": "object"
       },
       "Body_create_job_api_v1_jobs_post": {
@@ -60,6 +98,29 @@
           "createdAt"
         ],
         "title": "CreateJobResponse",
+        "type": "object"
+      },
+      "DetectedLanguage": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 16,
+            "minLength": 2,
+            "title": "Code",
+            "type": "string"
+          },
+          "proportion": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Proportion",
+            "type": "number"
+          }
+        },
+        "required": [
+          "code",
+          "proportion"
+        ],
+        "title": "DetectedLanguage",
         "type": "object"
       },
       "ErrorDetail": {
@@ -193,6 +254,79 @@
         "title": "JobStatusResponse",
         "type": "object"
       },
+      "LanguageDetection": {
+        "additionalProperties": false,
+        "properties": {
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/DetectedLanguage"
+            },
+            "title": "Languages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "languages"
+        ],
+        "title": "LanguageDetection",
+        "type": "object"
+      },
+      "MeetingMetadata": {
+        "properties": {
+          "durationMs": {
+            "exclusiveMinimum": 0.0,
+            "title": "Durationms",
+            "type": "integer"
+          },
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/DetectedLanguage"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "namedSpeakerCount": {
+            "minimum": 0.0,
+            "title": "Namedspeakercount",
+            "type": "integer"
+          },
+          "speakerCount": {
+            "minimum": 0.0,
+            "title": "Speakercount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "durationMs",
+          "speakerCount",
+          "namedSpeakerCount",
+          "languages"
+        ],
+        "title": "MeetingMetadata",
+        "type": "object"
+      },
+      "MomQuality": {
+        "additionalProperties": false,
+        "properties": {
+          "confidenceScale": {
+            "const": "ZERO_TO_ONE",
+            "title": "Confidencescale",
+            "type": "string"
+          },
+          "momConfidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Momconfidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "momConfidence",
+          "confidenceScale"
+        ],
+        "title": "MomQuality",
+        "type": "object"
+      },
       "MomReceipt": {
         "properties": {
           "jobId": {
@@ -220,6 +354,367 @@
         "title": "MomReceipt",
         "type": "object"
       },
+      "MomResult": {
+        "additionalProperties": false,
+        "properties": {
+          "document": {
+            "additionalProperties": true,
+            "title": "Document",
+            "type": "object"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/MomQuality"
+          },
+          "schemaVersion": {
+            "const": "mom.v1alpha1",
+            "title": "Schemaversion",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "quality",
+          "document"
+        ],
+        "title": "MomResult",
+        "type": "object"
+      },
+      "ProcessingSummary": {
+        "properties": {
+          "completedAt": {
+            "format": "date-time",
+            "title": "Completedat",
+            "type": "string"
+          },
+          "elapsedMs": {
+            "minimum": 0.0,
+            "title": "Elapsedms",
+            "type": "integer"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "title": "Startedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "startedAt",
+          "completedAt",
+          "elapsedMs"
+        ],
+        "title": "ProcessingSummary",
+        "type": "object"
+      },
+      "PublicSubmittedBy": {
+        "properties": {
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayname"
+          },
+          "userId": {
+            "minLength": 1,
+            "title": "Userid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId"
+        ],
+        "title": "PublicSubmittedBy",
+        "type": "object"
+      },
+      "ReviewArtifactLinks": {
+        "properties": {
+          "mom": {
+            "$ref": "#/components/schemas/ArtifactLink"
+          },
+          "transcript": {
+            "$ref": "#/components/schemas/ArtifactLink"
+          }
+        },
+        "required": [
+          "mom",
+          "transcript"
+        ],
+        "title": "ReviewArtifactLinks",
+        "type": "object"
+      },
+      "ReviewContextResponse": {
+        "additionalProperties": false,
+        "description": "Browser-facing context with the submitter email intentionally omitted.",
+        "properties": {
+          "artifacts": {
+            "$ref": "#/components/schemas/ReviewArtifactLinks"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "jobId": {
+            "minLength": 1,
+            "title": "Jobid",
+            "type": "string"
+          },
+          "meetingMetadata": {
+            "$ref": "#/components/schemas/MeetingMetadata"
+          },
+          "processing": {
+            "$ref": "#/components/schemas/ProcessingSummary"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/ReviewQuality"
+          },
+          "schemaVersion": {
+            "const": "review-context.v1alpha1",
+            "title": "Schemaversion",
+            "type": "string"
+          },
+          "sourceRecording": {
+            "$ref": "#/components/schemas/ReviewSourceRecording"
+          },
+          "speakers": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptionSpeaker"
+            },
+            "title": "Speakers",
+            "type": "array"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "submittedBy": {
+            "$ref": "#/components/schemas/PublicSubmittedBy"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "jobId",
+          "status",
+          "stage",
+          "createdAt",
+          "updatedAt",
+          "submittedBy",
+          "sourceRecording",
+          "processing",
+          "meetingMetadata",
+          "speakers",
+          "quality",
+          "artifacts"
+        ],
+        "title": "ReviewContextResponse",
+        "type": "object"
+      },
+      "ReviewQuality": {
+        "properties": {
+          "confidenceScale": {
+            "const": "ZERO_TO_ONE",
+            "title": "Confidencescale",
+            "type": "string"
+          },
+          "momConfidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Momconfidence",
+            "type": "number"
+          },
+          "overallConfidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overallconfidence"
+          },
+          "transcriptConfidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Transcriptconfidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "transcriptConfidence",
+          "momConfidence",
+          "overallConfidence",
+          "confidenceScale"
+        ],
+        "title": "ReviewQuality",
+        "type": "object"
+      },
+      "ReviewSourceRecording": {
+        "properties": {
+          "durationMs": {
+            "exclusiveMinimum": 0.0,
+            "title": "Durationms",
+            "type": "integer"
+          },
+          "mediaType": {
+            "minLength": 1,
+            "title": "Mediatype",
+            "type": "string"
+          },
+          "originalFileName": {
+            "minLength": 1,
+            "title": "Originalfilename",
+            "type": "string"
+          },
+          "sizeBytes": {
+            "minimum": 1.0,
+            "title": "Sizebytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "originalFileName",
+          "mediaType",
+          "sizeBytes",
+          "durationMs"
+        ],
+        "title": "ReviewSourceRecording",
+        "type": "object"
+      },
+      "TranscriptContent": {
+        "additionalProperties": false,
+        "properties": {
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptSegment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "segments"
+        ],
+        "title": "TranscriptContent",
+        "type": "object"
+      },
+      "TranscriptSegment": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "endMs": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endms"
+          },
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "speakerId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speakerid"
+          },
+          "startMs": {
+            "minimum": 0.0,
+            "title": "Startms",
+            "type": "integer"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "startMs",
+          "endMs",
+          "speakerId",
+          "languages",
+          "text",
+          "confidence"
+        ],
+        "title": "TranscriptSegment",
+        "type": "object"
+      },
+      "TranscriptionQuality": {
+        "additionalProperties": false,
+        "properties": {
+          "confidenceScale": {
+            "const": "ZERO_TO_ONE",
+            "title": "Confidencescale",
+            "type": "string"
+          },
+          "transcriptConfidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Transcriptconfidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "transcriptConfidence",
+          "confidenceScale"
+        ],
+        "title": "TranscriptionQuality",
+        "type": "object"
+      },
       "TranscriptionReceipt": {
         "properties": {
           "jobId": {
@@ -245,6 +740,100 @@
           "replayed"
         ],
         "title": "TranscriptionReceipt",
+        "type": "object"
+      },
+      "TranscriptionResult": {
+        "additionalProperties": false,
+        "properties": {
+          "audioMetadata": {
+            "$ref": "#/components/schemas/AudioMetadata"
+          },
+          "jobId": {
+            "minLength": 1,
+            "title": "Jobid",
+            "type": "string"
+          },
+          "languageDetection": {
+            "$ref": "#/components/schemas/LanguageDetection"
+          },
+          "quality": {
+            "$ref": "#/components/schemas/TranscriptionQuality"
+          },
+          "schemaVersion": {
+            "const": "transcription.v1alpha1",
+            "title": "Schemaversion",
+            "type": "string"
+          },
+          "speakers": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptionSpeaker"
+            },
+            "title": "Speakers",
+            "type": "array"
+          },
+          "transcript": {
+            "$ref": "#/components/schemas/TranscriptContent"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "jobId",
+          "transcript",
+          "audioMetadata",
+          "languageDetection",
+          "speakers",
+          "quality"
+        ],
+        "title": "TranscriptionResult",
+        "type": "object"
+      },
+      "TranscriptionSpeaker": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayname"
+          },
+          "id": {
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "speakingTimeProportion": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speakingtimeproportion"
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "languages",
+          "speakingTimeProportion"
+        ],
+        "title": "TranscriptionSpeaker",
         "type": "object"
       },
       "ValidationError": {
@@ -292,7 +881,7 @@
   "info": {
     "description": "Filesystem-backed upload, transcription receipt, transformation, and text-service dispatch and persisted draft MoM callback pipeline.",
     "title": "Secure MOM Pipeline API",
-    "version": "0.4.0-provisional"
+    "version": "0.5.0-provisional"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -324,26 +913,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "format": "binary",
-                "type": "string"
-              }
-            },
-            "application/octet-stream": {
-              "schema": {
-                "format": "binary",
-                "type": "string"
-              }
-            },
-            "text/csv": {
-              "schema": {
-                "format": "binary",
-                "type": "string"
-              }
-            },
-            "text/plain": {
-              "schema": {
-                "format": "binary",
-                "type": "string"
+                "$ref": "#/components/schemas/TranscriptionResult"
               }
             }
           },
@@ -410,6 +980,16 @@
             },
             "description": "Request Entity Too Large"
           },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -462,8 +1042,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/MomResult"
               }
             }
           },
@@ -719,7 +1298,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MomResult"
+                }
               }
             },
             "description": "Successful Response"
@@ -806,6 +1387,75 @@
         "x-contract-status": "TODO(discovery): provisional mock response"
       }
     },
+    "/api/v1/jobs/{job_id}/review-context": {
+      "get": {
+        "operationId": "get_review_context_api_v1_jobs__job_id__review_context_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Read compact metadata for the review-ready portal view"
+      }
+    },
     "/api/v1/jobs/{job_id}/transcript": {
       "get": {
         "operationId": "get_transcript_api_v1_jobs__job_id__transcript_get",
@@ -823,13 +1473,33 @@
         "responses": {
           "200": {
             "content": {
-              "text/plain": {
+              "application/json": {
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/TranscriptionResult"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -840,10 +1510,19 @@
               }
             },
             "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           }
         },
-        "summary": "Trigger mock transcript read",
-        "x-contract-status": "TODO(discovery): provisional mock response"
+        "summary": "Read the persisted structured transcription result"
       }
     },
     "/health": {

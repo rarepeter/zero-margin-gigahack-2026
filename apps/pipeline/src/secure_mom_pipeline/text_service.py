@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from threading import Lock, Timer
 from typing import Final
@@ -13,12 +14,17 @@ from uuid import uuid4
 import httpx
 from pydantic import ValidationError
 
+from .callback_transport import CallbackSender
 from .models import TextSubmission
 
 
 logger = logging.getLogger("secure_mom_pipeline")
 MOCK_MOM_DOCUMENT: Final = {
-    "schemaVersion": "mock-v1",
+    "schemaVersion": "mom.v1alpha1",
+    "quality": {
+        "momConfidence": 0.86,
+        "confidenceScale": "ZERO_TO_ONE",
+    },
     "document": {"content": "Mock Minutes of Meeting"},
 }
 
@@ -108,10 +114,12 @@ class MockTextService:
         callback_delay_seconds: float = 5.0,
         *,
         transport: httpx.BaseTransport | None = None,
+        callback_sender: CallbackSender | None = None,
     ) -> None:
         self.callback_url_template = callback_url_template
         self.callback_delay_seconds = callback_delay_seconds
         self.transport = transport
+        self.callback_sender = callback_sender
         self._scheduled: set[tuple[str, str]] = set()
         self._schedule_lock = Lock()
 
@@ -167,35 +175,42 @@ class MockTextService:
                 ensure_ascii=False,
                 separators=(",", ":"),
             ).encode("utf-8")
-            with httpx.Client(timeout=5.0, transport=self.transport) as client:
-                response = client.post(
-                    callback_url,
-                    content=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Text-Model-Job-Id": model_job_id,
-                    },
-                )
-            callback_succeeded = 200 <= response.status_code < 300
+            headers: Mapping[str, str] = {
+                "Content-Type": "application/json",
+                "X-Text-Model-Job-Id": model_job_id,
+            }
+            if self.callback_sender is not None:
+                status_code = self.callback_sender(callback_url, payload, headers)
+            else:
+                with httpx.Client(timeout=5.0, transport=self.transport) as client:
+                    response = client.post(
+                        callback_url,
+                        content=payload,
+                        headers=headers,
+                    )
+                status_code = response.status_code
+            callback_succeeded = 200 <= status_code < 300
             if callback_succeeded:
                 logger.info(
                     "event=mock_text_callback_accepted job_id=%s model_job_id=%s status_code=%d",
                     pipeline_job_id,
                     model_job_id,
-                    response.status_code,
+                    status_code,
                 )
             else:
                 logger.error(
                     "event=mock_text_callback_rejected job_id=%s model_job_id=%s status_code=%d",
                     pipeline_job_id,
                     model_job_id,
-                    response.status_code,
+                    status_code,
                 )
-        except (httpx.TransportError, ValueError):
+        except (httpx.TransportError, RuntimeError, ValueError) as exc:
             logger.error(
-                "event=mock_text_callback_failed job_id=%s model_job_id=%s",
+                "event=mock_text_callback_failed job_id=%s model_job_id=%s "
+                "error_type=%s",
                 pipeline_job_id,
                 model_job_id,
+                type(exc).__name__,
             )
         finally:
             if not callback_succeeded:

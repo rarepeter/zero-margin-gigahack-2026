@@ -1,10 +1,12 @@
-"""Replaceable transcription-bytes to UTF-8 text boundary."""
+"""Structured transcription-result to plain-text MoM input boundary."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from .models import TextDocument, TranscriptionSource
+from pydantic import ValidationError
+
+from .models import TextDocument, TranscriptionResult, TranscriptionSource
 
 
 class IntermediateTransformationError(ValueError):
@@ -15,14 +17,18 @@ class IntermediateTransformer(Protocol):
     def transform(self, source: TranscriptionSource) -> TextDocument: ...
 
 
-class Utf8IntermediateTransformer:
-    """Decode UTF-8 while preserving every decoded character unchanged."""
+class StructuredTranscriptionTransformer:
+    """Validate transcription.v1alpha1 and extract its complete transcript text."""
 
     def transform(self, source: TranscriptionSource) -> TextDocument:
-        try:
-            text = source.data.decode("utf-8")
-        except UnicodeDecodeError as exc:
+        if source.media_type.split(";", 1)[0].strip().lower() != "application/json":
             raise IntermediateTransformationError(
-                "The transcription is not valid UTF-8"
+                "The transcription source must use application/json"
+            )
+        try:
+            result = TranscriptionResult.model_validate_json(source.data)
+        except (ValidationError, ValueError) as exc:
+            raise IntermediateTransformationError(
+                "The transcription does not match transcription.v1alpha1"
             ) from exc
-        return TextDocument(text=text)
+        return TextDocument(text=result.transcript.text)

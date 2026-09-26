@@ -15,9 +15,12 @@ Last updated: 26 September 2026
   callbacks for the transcription and draft MoM artifacts.
 - Passing the recording path to the audio service and uploading a `.txt` file to
   the text/MoM service.
-- Atomic persistence of source transcription bytes and a UTF-8 plain-text copy.
+- Atomic persistence of structured `transcription.v1alpha1` JSON and a derived
+  UTF-8 plain-text input for the MoM service.
 - Validation and persistence of a draft MoM JSON document.
-- Read endpoints for job status and completed artifacts.
+- Persistence of compact review-context metadata when the draft becomes ready.
+- Separate read endpoints for job status, review context, structured transcript,
+  and draft MoM artifacts.
 - Configurable local ML endpoint URLs, ports, polling intervals, and timeouts.
 - Health and readiness checks needed to verify the local pipeline before a demo.
 - Recovery from process interruption using persisted state and valid artifacts.
