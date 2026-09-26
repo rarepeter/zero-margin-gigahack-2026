@@ -29,6 +29,7 @@ from secure_mom_pipeline.models import (
 )
 from secure_mom_pipeline.text_service import (
     HttpTextService,
+    MOCK_MOM_DOCUMENT,
     MockTextService,
     TextConnectionError,
     TextProtocolError,
@@ -846,7 +847,8 @@ def test_mock_audio_service_pushes_transcription_callback_after_delay(
     assert document["jobId"] == "pipeline-job"
     assert document["quality"]["transcriptConfidence"] == 0.91
     assert document["transcript"]["text"] == (
-        "Mock transcription for pipeline job pipeline-job."
+        "Participants agreed to validate the local pipeline demo. The integration "
+        "team will verify the review screen by 27 September 2026."
     )
 
     service.ensure_callback("pipeline-job", submission.model_job_id)
@@ -1003,14 +1005,7 @@ def test_mock_text_service_pushes_versioned_mom_callback_after_delay(
     assert request.headers["content-type"] == "application/json"
     document = json.loads(request.content)
     assert list(document) == ["schemaVersion", "quality", "document"]
-    assert document == {
-        "schemaVersion": "mom.v1alpha1",
-        "quality": {
-            "momConfidence": 0.86,
-            "confidenceScale": "ZERO_TO_ONE",
-        },
-        "document": {"content": "Mock Minutes of Meeting"},
-    }
+    assert document == MOCK_MOM_DOCUMENT
 
     service.ensure_callback("pipeline-job", submission.model_job_id)
     assert len(requests) == 1

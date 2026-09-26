@@ -83,7 +83,11 @@ class MockAudioService:
         callback_succeeded = False
         try:
             callback_url = self.callback_url_template.format(job_id=pipeline_job_id)
-            text = f"Mock transcription for pipeline job {pipeline_job_id}."
+            text = (
+                "Participants agreed to validate the local pipeline demo. "
+                "The integration team will verify the review screen by "
+                "27 September 2026."
+            )
             transcription = json.dumps(
                 {
                     "schemaVersion": "transcription.v1alpha1",
@@ -94,7 +98,7 @@ class MockAudioService:
                             {
                                 "id": "segment-1",
                                 "startMs": 0,
-                                "endMs": 3000,
+                                "endMs": 8000,
                                 "speakerId": "speaker-1",
                                 "languages": ["en"],
                                 "text": text,
@@ -102,7 +106,7 @@ class MockAudioService:
                             }
                         ],
                     },
-                    "audioMetadata": {"durationMs": 3000},
+                    "audioMetadata": {"durationMs": 8000},
                     "languageDetection": {
                         "languages": [{"code": "en", "proportion": 1.0}]
                     },

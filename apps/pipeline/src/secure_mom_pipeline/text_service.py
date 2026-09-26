@@ -25,7 +25,72 @@ MOCK_MOM_DOCUMENT: Final = {
         "momConfidence": 0.86,
         "confidenceScale": "ZERO_TO_ONE",
     },
-    "document": {"content": "Mock Minutes of Meeting"},
+    "document": {
+        "header": {
+            "subject": "Local pipeline demo validation",
+            "meeting_type": "other",
+            "meeting_type_confidence": "high",
+            "date": "2026-09-27",
+            "date_source": "recording",
+            "languages": {"en": 1.0},
+            "participants_mentioned": [
+                {
+                    "name": "integration team",
+                    "role": None,
+                    "role_stated": False,
+                }
+            ],
+        },
+        "summary": (
+            "Participants agreed to validate the local pipeline demo, and the "
+            "integration team will verify the review screen by 27 September "
+            "2026. 1 decision, 1 action."
+        ),
+        "decisions": [
+            {
+                "id": "D1",
+                "text": "Validate the local pipeline demo.",
+                "status": "decided",
+                "evidence": {
+                    "quote": (
+                        "Participants agreed to validate the local pipeline demo."
+                    ),
+                    "lang": "en",
+                    "segment": 0,
+                    "t": "00:00:00",
+                    "speaker": "speaker-1",
+                },
+                "flags": [],
+            }
+        ],
+        "actions": [
+            {
+                "id": "A1",
+                "text": "Verify the review screen",
+                "decision_ids": ["D1"],
+                "owner": "integration team",
+                "deadline": {
+                    "spoken": "by 27 September 2026",
+                    "resolved": "2026-09-27",
+                },
+                "evidence": {
+                    "quote": (
+                        "The integration team will verify the review screen by "
+                        "27 September 2026."
+                    ),
+                    "lang": "en",
+                    "segment": 0,
+                    "t": "00:00:00",
+                    "speaker": "speaker-1",
+                },
+                "flags": [],
+            }
+        ],
+        "findings": [],
+        "topics": [],
+        "risks": [],
+        "open_questions": [],
+    },
 }
 
 
