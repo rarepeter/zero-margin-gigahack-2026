@@ -61,7 +61,7 @@ Those editing and export functions are not pipeline responsibilities.
 - Local SMTP and distribution-list delivery.
 - Whether the final application is run directly or packaged in containers.
 - Final ODF/DOCX generation approach in the frontend workstream.
-- Administrative and executive meeting support.
+- Additional meeting categories beyond clinical, financial, administrative,
+  executive, operational, and urgent-crisis workflows.
 - Data retention, cleanup, and deletion behavior beyond the hackathon.
 - A stricter policy for logging meeting-derived content.
-

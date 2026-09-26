@@ -70,6 +70,12 @@ get_result(model_job_id) -> local path or response payload
 
 These are internal concepts, not a mandatory REST contract for ML owners.
 
+The current implementation stops after a mock audio adapter acknowledges a
+readable absolute local path. It returns a generated `mock-audio-...` job ID and
+does not read or process the recording. This keeps the orchestration boundary
+executable without presenting the discovery-only audio OpenAPI document as an
+agreed service contract.
+
 Both services must behave asynchronously: submission acknowledges work without
 holding the request open for the full inference duration, and completion is
 observed through polling.
@@ -113,6 +119,11 @@ validated and atomically installed before the state advances. A process restart
 must inspect persisted state and artifacts rather than starting a job again from
 the beginning without cause.
 
+Initial job creation uses a stronger publication boundary: the API writes the
+audio, state, and initial events under the storage root's staging directory and
+atomically renames the complete directory into `jobs/`. The worker scans only
+published job directories.
+
 ## Retry behavior
 
 - Retry a transient connection failure once automatically.
@@ -134,4 +145,3 @@ is taken offline.
 
 Docker is neither required nor rejected permanently. It is deferred until the
 team knows whether direct execution is sufficient on the presentation MacBook.
-

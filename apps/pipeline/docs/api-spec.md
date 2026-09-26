@@ -1,6 +1,6 @@
 # Draft pipeline HTTP API
 
-Status: provisional; not a finalized integration contract  
+Status: job creation and status implemented provisionally; remaining routes are not finalized
 Last updated: 26 September 2026
 
 ## Conventions
@@ -20,8 +20,9 @@ Last updated: 26 September 2026
 
 ### `POST /api/v1/jobs`
 
-Accept one audio file as `multipart/form-data`. Validate and persist the file,
-create a queued job, and return without waiting for ML processing.
+Accept one audio file in the `audio` multipart field. The implementation streams
+and atomically persists the file, creates a queued job, and returns without
+waiting for ML processing.
 
 Proposed response: `202 Accepted`
 
@@ -34,7 +35,11 @@ Proposed response: `202 Accepted`
 }
 ```
 
-The supported audio formats and maximum size remain open.
+The current provisional implementation accepts `.mp3`, `.wav`, `.m4a`, `.aac`,
+`.flac`, `.ogg`, `.opus`, `.webm`, and `.mp4` up to 300 MiB. MIME type is
+advisory. The pipeline preserves bytes and does not decode or transcode audio.
+Unsupported extensions return `415`; empty files return `400`; files over the
+limit return `413`.
 
 ### `GET /api/v1/jobs/{jobId}`
 
@@ -57,6 +62,8 @@ Return current state suitable for frontend polling.
 
 The frontend may poll this endpoint every one or two seconds initially. The
 interval should become configuration rather than a hard-coded contract.
+
+This endpoint now reads the persisted job state. Unknown IDs return `404`.
 
 ### `GET /api/v1/jobs/{jobId}/transcript`
 
@@ -126,4 +133,3 @@ The initial pipeline API does not provide:
 
 Do not expose stack traces, secrets, or arbitrary local paths in public error
 responses. The final list of error codes remains open.
-

@@ -43,8 +43,8 @@ through configuration, not hard-coded.
 ## Specification discipline
 
 The public API, transcript representation, and MoM JSON schema are drafts. Keep
-their version markers and avoid inventing clinical fields or making provisional
+their version markers and avoid inventing clinical, financial, administrative,
+or operational fields or making provisional
 shapes appear final. Plain text is the accepted transcript artifact for now.
 Traceability metadata, content-logging policy, deployment containers, SMTP, and
 the definitive MoM schema remain unresolved or deferred.
-

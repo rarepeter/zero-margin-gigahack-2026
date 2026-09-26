@@ -1,3 +1,3 @@
-"""Secure MOM pipeline mock baseline."""
+"""Secure MOM local processing pipeline."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

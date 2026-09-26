@@ -1,11 +1,29 @@
 {
   "components": {
     "schemas": {
+      "ArtifactAvailability": {
+        "properties": {
+          "momAvailable": {
+            "title": "Momavailable",
+            "type": "boolean"
+          },
+          "transcriptAvailable": {
+            "title": "Transcriptavailable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "transcriptAvailable",
+          "momAvailable"
+        ],
+        "title": "ArtifactAvailability",
+        "type": "object"
+      },
       "Body_create_job_api_v1_jobs_post": {
         "properties": {
           "audio": {
             "contentMediaType": "application/octet-stream",
-            "description": "TODO(discovery, TD-031)",
+            "description": "Audio recording, up to 300 MiB",
             "title": "Audio",
             "type": "string"
           }
@@ -14,6 +32,69 @@
           "audio"
         ],
         "title": "Body_create_job_api_v1_jobs_post",
+        "type": "object"
+      },
+      "CreateJobResponse": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "stage",
+          "createdAt"
+        ],
+        "title": "CreateJobResponse",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorEnvelope",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -27,6 +108,87 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "JobError": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "title": "JobError",
+        "type": "object"
+      },
+      "JobStatus": {
+        "enum": [
+          "QUEUED",
+          "TRANSCRIBING",
+          "FAILED"
+        ],
+        "title": "JobStatus",
+        "type": "string"
+      },
+      "JobStatusResponse": {
+        "properties": {
+          "artifacts": {
+            "$ref": "#/components/schemas/ArtifactAvailability"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "stage",
+          "createdAt",
+          "updatedAt",
+          "artifacts",
+          "error"
+        ],
+        "title": "JobStatusResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -72,9 +234,9 @@
     }
   },
   "info": {
-    "description": "Non-functional baseline. Every operation only records a safe endpoint event and returns dummy data. TODO(discovery, TD-025): finalize the API.",
+    "description": "Filesystem-backed upload and mock audio-dispatch slice. Endpoints not covered by this slice remain explicit mocks.",
     "title": "Secure MOM Pipeline API",
-    "version": "0.1.0-mock"
+    "version": "0.2.0-provisional"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -92,13 +254,45 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CreateJobResponse"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
           },
           "422": {
             "content": {
@@ -109,10 +303,19 @@
               }
             },
             "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           }
         },
-        "summary": "Trigger mock job creation",
-        "x-contract-status": "TODO(discovery): provisional mock response"
+        "summary": "Persist an audio upload and queue a pipeline job"
       }
     },
     "/api/v1/jobs/{job_id}": {
@@ -133,10 +336,22 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "content": {
@@ -147,10 +362,19 @@
               }
             },
             "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           }
         },
-        "summary": "Trigger mock job status read",
-        "x-contract-status": "TODO(discovery): provisional mock response"
+        "summary": "Read persisted pipeline job status"
       }
     },
     "/api/v1/jobs/{job_id}/mom": {

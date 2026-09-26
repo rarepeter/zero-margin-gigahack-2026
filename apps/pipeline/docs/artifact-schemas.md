@@ -115,8 +115,9 @@ A non-binding envelope for integration experiments is:
 }
 ```
 
-This envelope does not define the medical MoM fields and must not be presented
-as the final model contract.
+This envelope does not define clinical, financial, administrative, executive,
+operational, or crisis-meeting MoM fields and must not be presented as the
+final model contract.
 
 ## Operational events
 
@@ -128,9 +129,34 @@ The team has not agreed a strict content-logging policy. The implementation must
 not claim that operational logs are free of meeting-derived content until that
 policy and its tests exist.
 
+The implemented event file uses one UTF-8 JSON object per line and a stable,
+Kafka-shaped envelope:
+
+```json
+{
+  "schemaVersion": 1,
+  "offset": 4,
+  "timestamp": "2026-09-26T12:01:12Z",
+  "topic": "pipeline.job-events",
+  "key": "<job-id>",
+  "eventType": "audio.dispatch.accepted",
+  "producer": "pipeline-worker",
+  "value": {
+    "status": "TRANSCRIBING",
+    "stage": "audio_processing",
+    "modelJobId": "mock-audio-..."
+  }
+}
+```
+
+Offsets start at zero and increase within one job file. Writers append under a
+filesystem lock and flush each record. Readers validate the envelope and offset
+sequence and may start at a selected offset. `state.json`, not the event log,
+remains the canonical current state. No broker, consumer checkpoint, or event
+processor is part of this increment.
+
 ## Atomic persistence rule
 
 Write a new state or artifact to a temporary file in the same filesystem, flush
 and close it, validate it, and replace the canonical path atomically. Advance
 job state only after the artifact it depends on has been installed successfully.
-

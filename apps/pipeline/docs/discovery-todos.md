@@ -10,7 +10,8 @@ boundary module.
 
 - `TODO(discovery, TD-025)`: confirm the API prefix, routes, methods, statuses,
   request fields, response fields, and error behavior.
-- `TODO(discovery, TD-031)`: define supported audio formats and upload limits.
+- `TODO(discovery, TD-031)`: confirm or replace the provisional common-format
+  allowlist and 300 MiB upload limit implemented for the first real slice.
 - `TODO(discovery, TD-027)`: decide whether and by whom `COMPLETED` is emitted.
 
 ## Filesystem and artifacts
@@ -26,6 +27,8 @@ boundary module.
 - `TODO(discovery, TD-026)`: obtain independent audio and text service routes,
   payloads, identifiers, status values, error shapes, and result delivery rules
   from their owners.
+- Replace the current mock audio pickup adapter only after the audio-service
+  contract is agreed.
 - `TODO(discovery, TD-032)`: choose polling intervals, timeouts, and the error
   taxonomy after observing the actual services.
 

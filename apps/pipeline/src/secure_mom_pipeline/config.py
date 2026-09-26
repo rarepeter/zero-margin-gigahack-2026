@@ -1,4 +1,4 @@
-"""Centralized provisional configuration for the mock baseline."""
+"""Centralized configuration for the local pipeline processes."""
 
 from __future__ import annotations
 

@@ -40,10 +40,13 @@ Statuses used here:
 | TD-026 | Open | Exact contracts exposed by the two ML services. | Adapter specifications depend on ML-owner input. |
 | TD-027 | Open | Meaning and ownership of the final `COMPLETED` state. | The pipeline ends at `AWAITING_REVIEW`, while later frontend actions occur outside it. |
 | TD-028 | Deferred | Statement-level supporting evidence and traceability fields. | Explicitly outside the current design. |
-| TD-029 | Deferred | Content-specific logging restrictions. | No strict policy has been agreed; privacy-safe defaults should be revisited before real medical use. |
+| TD-029 | Deferred | Content-specific logging restrictions. | No strict policy has been agreed; privacy-safe defaults should be revisited before real institutional use. |
 | TD-030 | Deferred | Container packaging and Compose deployment. | Revisit only if direct execution is insufficient. |
 | TD-031 | Open | Supported input audio formats and maximum upload size. | Must match the audio ML service and frontend validation. |
 | TD-032 | Open | Model polling intervals, stage timeouts, and exact error taxonomy. | Must be tuned after real service behavior is known. |
+| TD-033 | Provisional | Accept common audio extensions up to 300 MiB without decoding or transcoding. | Provides a useful upload boundary while the definitive audio contract remains open. |
+| TD-034 | Provisional | Use an isolated mock audio adapter through pickup acknowledgement. | Exercises orchestration without inventing the real ML HTTP contract. |
+| TD-035 | Accepted | Persist per-job operational history as versioned, append-only Kafka-shaped NDJSON records. | Gives local services one ordered record envelope without introducing a broker or processor. |
 
 ## Logging clarification
 
@@ -52,4 +55,3 @@ meeting content in operational log messages while still logging job IDs, stages,
 durations, and errors. The team has not adopted that as a strict requirement at
 this stage. The implementation should therefore keep logging configurable and
 avoid making a stronger compliance claim than has been agreed.
-

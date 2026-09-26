@@ -21,14 +21,15 @@ been installed locally.
 
 ## Current status
 
-The repository contains a deliberately non-functional baseline: a dummy HTTP
-API, a mock worker, basic byte/text filesystem services, local operational
-logging, and provisional OpenAPI documents. The HTTP handlers only log that an
-operation was triggered and return dummy content. They do not create jobs,
-persist state, invoke ML services, or validate artifacts.
+The job-creation path is functional through audio-service pickup. The API
+streams an uploaded recording into an atomically published filesystem job and
+returns `202 Accepted`. A separate worker discovers one queued job, passes its
+local path to a replaceable mock audio-service adapter, and persists a
+`TRANSCRIBING` checkpoint with a mock model job ID.
 
-The API, worker behavior, paths, and ML contracts remain discovery items. See
-[Discovery TODOs](docs/discovery-todos.md) before relying on any placeholder.
+The transcript, MoM, retry, readiness, and real ML integration paths remain
+mock or unimplemented. The audio-service contract is still a discovery item;
+the current adapter acknowledges a readable local file without processing it.
 
 ## Documentation
 
@@ -50,12 +51,13 @@ provisional, deferred, or still open.
 - one active pipeline job at a time
 - asynchronous public API and asynchronous ML integrations
 - orchestration-side polling of both ML services
-- one adapter per ML service; their external contracts may differ
+- one adapter per ML service; the audio adapter is currently a mock because its
+  external contract is not agreed
 - externally started ML services configured by local endpoint URL and port
 - direct MacBook execution first; Docker is not currently required
 
-These points describe the accepted target architecture. The current baseline
-does not implement orchestration, model integration, persistence, or recovery.
+These points describe the accepted target architecture. The current increment
+implements persistence and mock audio pickup, not the later ML stages.
 
 ## Local setup
 
@@ -70,7 +72,7 @@ The application reads the environment variables shown in `.env.example`.
 Loading a `.env` file automatically is not implemented; export the variables in
 the shell or use a local environment runner.
 
-Start the dummy API and mock worker in separate shells:
+Start the API and worker in separate shells:
 
 ```bash
 uv run pipeline-api
@@ -80,11 +82,27 @@ uv run pipeline-worker
 The API defaults to `127.0.0.1:8000`. This bind address and port are provisional
 and marked for discovery in the source.
 
-Run one finite mock-worker cycle with:
+Attempt one queued job and exit with:
 
 ```bash
 uv run pipeline-worker --once
 ```
+
+## Create and inspect a job
+
+The upload endpoint accepts `.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`,
+`.opus`, `.webm`, and `.mp4` files up to 300 MiB. MIME type is advisory; the
+pipeline preserves the bytes and does not decode or transcode them.
+
+```bash
+curl -F 'audio=@meeting.mp3' http://127.0.0.1:8000/api/v1/jobs
+curl http://127.0.0.1:8000/api/v1/jobs/<job-id>
+uv run pipeline-worker --once
+```
+
+Jobs are stored below `PIPELINE_STORAGE_ROOT/jobs/<job-id>/`. Each contains
+`state.json`, a server-named audio artifact under `input/`, and an append-only
+`operations.ndjson` history. State and initial job publication are atomic.
 
 ## Filesystem services
 
@@ -108,11 +126,17 @@ uv run pipeline-export-openapi docs/openapi/pipeline.openapi.json
 The ML documents intentionally use open objects and `TODO(discovery)` notices;
 they are not contracts for the ML owners yet.
 
-## Manual smoke check
+## Verification
 
-Automated tests are intentionally out of scope for this baseline. The approved
-smoke check verifies process startup, dummy endpoint responses and logging,
-filesystem byte/text round trips, and JSON readability of all OpenAPI files.
+Run the automated suite with:
+
+```bash
+uv run pytest
+```
+
+The tests cover upload validation and persistence, atomic job visibility,
+status reads, event ordering, concurrent event appends, single-job worker
+behavior, mock ML pickup, and safe dispatch failure.
 
 All source dependencies must be declared and installable before the offline
 demo. Model installation and operation remain the responsibility of the ML

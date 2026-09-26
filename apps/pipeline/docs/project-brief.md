@@ -5,12 +5,14 @@ Last updated: 26 September 2026
 
 ## Problem
 
-Medical-team meetings contain decisions, follow-up actions, owners, deadlines,
-clinical findings, and technical detail. Producing useful minutes manually is
-slow, while general-purpose meeting assistants cannot satisfy the requirement
-that confidential meeting content remain inside the hospital environment.
+Meetings across the medical institution—including clinical, financial,
+administrative, executive, operational, and urgent-crisis meetings—contain
+decisions, follow-up actions, owners, deadlines, and domain-specific detail.
+Producing useful minutes manually is slow, while general-purpose meeting
+assistants cannot satisfy the requirement that confidential meeting content
+remain inside the hospital environment.
 
-Secure MOM must turn a recorded multilingual medical meeting into concise,
+Secure MOM must turn a recorded multilingual institution meeting into concise,
 structured Minutes of Meeting while running entirely on local hardware.
 
 ## Pipeline objective
@@ -34,15 +36,19 @@ The pipeline must:
 - The recording is the source of meeting truth.
 - Missing owners, deadlines, identities, or conclusions must not be invented.
 - The transcript is an intermediate artifact; a useful draft MoM is the goal.
-- Medical meaning, uncertainty, negation, measurements, and units must survive
-  the transformation.
+- Clinical, financial, administrative, operational, and technical meaning—as
+  well as uncertainty, negation, costs, dates, measurements, and units—must
+  survive the transformation.
 - All meeting content and processing stay on the local machine at runtime.
 - The MVP should favor clarity and reproducibility over infrastructure breadth.
 
 ## Operating context
 
 - 48-hour hackathon prototype
-- medical-team meetings are the primary use case
+- clinical, financial, administrative, executive, operational, and
+  urgent-crisis meetings are supported by the same audio-to-MoM workflow
+- recordings may be made in clinical rooms, departmental cabinets or offices
+  with desks, boardrooms, or other hospital workspaces; location is not input
 - Romanian, Russian, and English may be mixed in one recording
 - presentation target is a team MacBook
 - the application must be prepared before the demo and run without internet
@@ -54,4 +60,3 @@ The pipeline must:
 The frontend can submit a recording, receive a job ID, show meaningful progress,
 and retrieve a valid draft MoM JSON after both local ML stages finish. Restarting
 the API or worker does not lose already persisted job state or valid artifacts.
-
