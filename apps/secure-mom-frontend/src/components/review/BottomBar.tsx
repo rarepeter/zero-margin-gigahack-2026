@@ -19,24 +19,22 @@ function DiscardConfirm({ onCancel }: { onCancel: () => void }) {
 
 /** Fixed bottom bar: what's blocking export / recipients, Discard, Export (disabled while blocking red words remain). */
 export function BottomBar() {
-  const { l, left, view, exportMom } = useApp();
+  const { l, left, exportMom } = useApp();
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const discardBtn = useRef<HTMLButtonElement>(null);
-  const patient = view?.header.meeting_type === 'patient_case';
-
   if (confirm) {
     return <div className="bar2"><DiscardConfirm onCancel={() => { setConfirm(false); requestAnimationFrame(() => discardBtn.current?.focus()); }} /></div>;
   }
   return (
     <div className="bar2">
-      <div className="to">{left ? <span className="need">{l.exp_need(left)}</span> : patient ? l.patient : <RecipientPicker />}</div>
+      <div className="to">{left ? <span className="need">{l.exp_need(left)}</span> : <RecipientPicker />}</div>
       <button ref={discardBtn} className="btn btn-ghost" type="button" onClick={() => setConfirm(true)}>{l.discard}</button>
       <button
         className="btn btn-export"
         type="button"
         disabled={left > 0 || busy}
-        onClick={async () => { setBusy(true); try { await exportMom(patient); } finally { setBusy(false); } }}
+        onClick={async () => { setBusy(true); try { await exportMom(); } finally { setBusy(false); } }}
       >
         <Icon name="down" />{busy ? l.exporting : l.exp}
       </button>

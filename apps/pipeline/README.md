@@ -10,10 +10,10 @@ review-ready draft MoM has been persisted as JSON.
 ```text
 audio upload
     -> local audio-processing service
-    -> pushed transcription.v1alpha1 JSON
+    -> pushed transcription JSON (`schemaVersion: 1`)
     -> derived UTF-8 transcript.txt
     -> text-processing service
-    -> pushed mom.v1alpha1 JSON
+    -> pushed MoM JSON (`schemaVersion: 1`)
     -> review-ready MoM and compact context artifacts
 ```
 
@@ -36,7 +36,7 @@ stores `mom/draft.json` plus `review/context.json`, then advances to
 
 In the runnable development flow, the mock audio adapter schedules that callback
 five seconds after accepting a recording and sends a deterministic
-`transcription.v1alpha1` mock result. If the worker restarts while a mock job is
+schema-version-1 transcription mock result. If the worker restarts while a mock job is
 still waiting, it re-schedules the callback from the persisted checkpoint. By
 default, the mock routes the request through the real FastAPI callback handler
 in-process, so development does not depend on loopback networking. The delay
@@ -45,7 +45,7 @@ and callback base URL are configurable with
 `PIPELINE_MOCK_AUDIO_CALLBACK_BASE_URL`.
 
 The runtime text/MoM mock similarly accepts `transcript.txt`, waits five seconds,
-and pushes a `mom.v1alpha1` object containing `schemaVersion`, `quality`, and
+and pushes a MoM object with `schemaVersion: 1`, `quality`, and
 `document`. Its delay and callback base URL are independently configurable. The
 persisted draft, structured transcript, and compact review context are available
 through separate read endpoints.
@@ -155,7 +155,7 @@ layout. Paths escaping the supplied root are rejected.
 - `docs/openapi/audio-processing.openapi.json` defines the agreed structured
   transcription result and provisional service transport.
 - `docs/openapi/text-processing.openapi.json` defines the agreed MoM envelope
-  and provisional service transport.
+  and the validated schema-version-1 review-document shape.
 
 Regenerate the pipeline document after changing the API:
 
@@ -163,8 +163,8 @@ Regenerate the pipeline document after changing the API:
 uv run pipeline-export-openapi docs/openapi/pipeline.openapi.json
 ```
 
-The detailed MoM `document` object and remaining service transport details stay
-open; the versioned envelopes and quality fields are current contracts.
+The schema-version-1 MoM `document` object is a current validated portal contract.
+Remaining ML-service transport details stay open.
 
 ## Verification
 

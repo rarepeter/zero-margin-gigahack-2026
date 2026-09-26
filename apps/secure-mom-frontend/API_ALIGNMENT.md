@@ -25,7 +25,8 @@ source of truth. From this directory, `npm run sync:api` copies that document to
 `openapi/openapi.json` and regenerates `src/api/schema.d.ts`.
 
 The synchronized API is currently `0.5.0-provisional`. The detailed
-`mom.v1alpha1.document` schema is still open by backend decision TD-024.
+The schema-version-1 MoM document is now validated by the backend; its
+snake_case field naming remains the current portal contract.
 
 ## Component-to-API map
 
@@ -34,9 +35,9 @@ The synchronized API is currently `0.5.0-provisional`. The detailed
 | Upload screen | `createJob` | `POST /api/v1/jobs` | Aligned for multipart field `audio`. Audio-format details remain provisional. |
 | Recording screen | Reuses `createJob` | `POST /api/v1/jobs` | Transport aligns; product scope and browser codec/extension coverage need review. |
 | Processing screen and sidebar | `getJob` every 2 seconds | `GET /api/v1/jobs/{job_id}` | Status and artifact availability align. Mock now includes `reviewContextAvailable`. |
-| Processing transcript preview | `getTranscript` | `GET /api/v1/jobs/{job_id}/transcript` | Aligned to structured `transcription.v1alpha1` JSON. |
+| Processing transcript preview | `getTranscript` | `GET /api/v1/jobs/{job_id}/transcript` | Aligned to structured transcription JSON with `schemaVersion: 1`. |
 | Review transcript pane | `getTranscript` | `GET /api/v1/jobs/{job_id}/transcript` | Aligned through the structured segment mapper. |
-| Review minutes pane | `getMom` then `parseMom(result.document)` | `GET /api/v1/jobs/{job_id}/mom` | Envelope aligned; detailed document shape remains explicitly provisional. |
+| Review minutes pane | `getMom` then `parseMom(result.document)` | `GET /api/v1/jobs/{job_id}/mom` | Envelope and detailed review document are validated; evidence uses stable segment IDs. |
 | AI confidence card | `getReviewContext` | `GET /api/v1/jobs/{job_id}/review-context` | Aligned to backend transcript and MoM confidence. |
 | Server indicator | `health` | `GET /health` | Route aligns, but backend health is currently a dummy liveness response and does not imply worker/model readiness. |
 | Failure screen | `retryJob` | `POST /api/v1/jobs/{job_id}/retry` | Route exists, but backend behavior is a dummy and does not actually recover a job. |
@@ -48,17 +49,16 @@ The synchronized API is currently `0.5.0-provisional`. The detailed
 
 ### B1 — Structured transcript response — resolved
 
-Both frontend modes now consume `transcription.v1alpha1` JSON. The mapper keeps
+Both frontend modes now consume transcription JSON with `schemaVersion: 1`. The mapper keeps
 segment IDs, boundaries, speaker IDs, languages, text, and confidence; it uses
 the backend display name when present and otherwise shows the anonymous speaker
 ID. The backend's derived internal `transcript.txt` handoff is unchanged.
 
-### B2 — Versioned MoM envelope and open document schema — integrated, schema open
+### B2 — Versioned MoM envelope and review document schema — resolved
 
-The frontend now consumes the `mom.v1alpha1` envelope and passes its `document`
-to the review parser. The backend mock content uses the current provisional
-review-document shape. Backend validation remains unchanged and the definitive
-document schema remains open under TD-024.
+The frontend consumes the schema-version-1 MoM envelope and passes its `document` to
+the review parser. The backend validates the full schema-version-1 review document and
+checks every evidence `segment_id` against the persisted transcription.
 
 ### B3 — Review context and confidence — resolved
 
@@ -100,6 +100,12 @@ contract or confirmed distribution-list source exists.
 
 No implementation change was made. The existing local demo directory remains,
 and no external directory or SMTP service was introduced.
+
+### B9 — Inferred meeting type must not control delivery — resolved in the UI
+
+The portal no longer treats `patient_case` as download-only. Delivery policy is
+a backend decision to be added with the directory and approval contract; the
+current inferred meeting type only affects wording.
 
 ### B8 — Product/schema coverage — frontend mismatches resolved
 

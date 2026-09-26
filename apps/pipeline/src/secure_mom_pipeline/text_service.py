@@ -20,76 +20,89 @@ from .models import TextSubmission
 
 logger = logging.getLogger("secure_mom_pipeline")
 MOCK_MOM_DOCUMENT: Final = {
-    "schemaVersion": "mom.v1alpha1",
-    "quality": {
-        "momConfidence": 0.86,
-        "confidenceScale": "ZERO_TO_ONE",
-    },
+    # This fixture deliberately exercises the same document sections and
+    # uncertainty UI as the portal's richer multilingual demo. It is served by
+    # the pipeline mock so live-mode integration is meaningful as well.
+    "schemaVersion": 1,
+    "quality": {"momConfidence": 0.86, "confidenceScale": "ZERO_TO_ONE"},
     "document": {
         "header": {
-            "subject": "Local pipeline demo validation",
-            "meeting_type": "other",
+            "subject": "Revizuirea profilaxiei antibiotice perioperatorii",
+            "meeting_type": "medical",
             "meeting_type_confidence": "high",
-            "date": "2026-09-27",
+            "date": "2026-09-25",
             "date_source": "recording",
-            "languages": {"en": 1.0},
+            "duration_min": 52,
+            "languages": {"ro": 0.71, "ru": 0.21, "en": 0.08},
             "participants_mentioned": [
-                {
-                    "name": "integration team",
-                    "role": None,
-                    "role_stated": False,
-                }
+                {"name": "Participant 1", "role": None, "role_stated": False},
+                {"name": "Participant 2", "role": None, "role_stated": False},
+                {"name": "Participant 3", "role": None, "role_stated": False},
+                {"name": "Participant 4", "role": None, "role_stated": False},
             ],
         },
         "summary": (
-            "Participants agreed to validate the local pipeline demo, and the "
-            "integration team will verify the review screen by 27 September "
-            "2026. 1 decision, 1 action."
+            "A fost analizat momentul administrării profilaxiei antibiotice și "
+            "datele privind infecțiile postoperatorii. Două decizii, trei acțiuni."
         ),
         "decisions": [
             {
                 "id": "D1",
-                "text": "Validate the local pipeline demo.",
+                "text": "Cefazolină 2 g i.v., cu 30–60 min înainte de incizie, devine prima linie în chirurgia generală electivă.",
                 "status": "decided",
-                "evidence": {
-                    "quote": (
-                        "Participants agreed to validate the local pipeline demo."
-                    ),
-                    "lang": "en",
-                    "segment": 0,
-                    "t": "00:00:00",
-                    "speaker": "speaker-1",
-                },
+                "evidence": {"quote": "Deci, решили — cefazolina două grame, 30–60 minute înainte de incizie.", "lang": "mixed", "segment_id": "segment-4", "t": "00:41:12", "speaker": "Participant 1"},
                 "flags": [],
-            }
+            },
+            {
+                "id": "D2",
+                "text": "Momentul administrării se înregistrează în lista de verificare, înainte de time-out.",
+                "status": "decided",
+                "evidence": {"quote": "OK, agreed — timpul administrării intră în checklist, înainte de time-out.", "lang": "mixed", "segment_id": "segment-5", "t": "00:44:30", "speaker": "Participant 4"},
+                "flags": [],
+            },
+            {
+                "id": "D3",
+                "text": "Redozare la intervențiile de peste 4 ore, cu avizul farmaciei.",
+                "status": "proposed",
+                "evidence": {"quote": "Poate facem redosing la patru ore? — Да, но надо проверить с фармацией.", "lang": "mixed", "segment_id": "segment-6", "t": "00:46:05", "speaker": "Participant 2"},
+                "flags": [{"type": "decision_status", "reason": "A fost decis sau doar propus?", "blocking": True, "candidates": ["decided", "proposed"]}],
+            },
         ],
         "actions": [
             {
-                "id": "A1",
-                "text": "Verify the review screen",
-                "decision_ids": ["D1"],
-                "owner": "integration team",
-                "deadline": {
-                    "spoken": "by 27 September 2026",
-                    "resolved": "2026-09-27",
-                },
-                "evidence": {
-                    "quote": (
-                        "The integration team will verify the review screen by "
-                        "27 September 2026."
-                    ),
-                    "lang": "en",
-                    "segment": 0,
-                    "t": "00:00:00",
-                    "speaker": "speaker-1",
-                },
+                "id": "A1", "text": "Actualizarea protocolului de profilaxie", "decision_ids": ["D1"], "owner": "Participant 3",
+                "deadline": {"spoken": "până vineri viitoare", "resolved": "2026-10-02"},
+                "evidence": {"quote": "Protocolul actualizat — până vineri viitoare.", "lang": "ro", "segment_id": "segment-4", "t": "00:43:10", "speaker": "Participant 1"},
+                "flags": [{"type": "deadline", "reason": "„Până vineri viitoare” a fost calculat ca 02.10.2026. Corect?", "blocking": True, "candidates": ["2026-10-02", "2026-10-09"]}],
+            },
+            {
+                "id": "A2", "text": "Instruirea asistentelor din blocul operator", "decision_ids": ["D1", "D2"], "owner": "Participant 4",
+                "deadline": {"spoken": "до первого октября", "resolved": "2026-09-30"},
+                "evidence": {"quote": "Instruirea asistentelor o fac eu, до первого октября.", "lang": "mixed", "segment_id": "segment-5", "t": "00:44:52", "speaker": "Participant 4"},
                 "flags": [],
-            }
+            },
+            {
+                "id": "A3", "text": "Extragerea datelor pentru auditul T4", "owner": None,
+                "deadline": {"spoken": None, "resolved": None},
+                "evidence": {"quote": "Datele pentru auditul pe T4 trebuie scoase din sistem… cineva de la statistică.", "lang": "ro", "segment_id": "segment-6", "t": "00:47:03", "speaker": "Participant 1"},
+                "flags": [{"type": "owner", "reason": "Nimeni nu a fost desemnat. Cine răspunde?", "blocking": True, "candidates": ["Participant 2", "Participant 4"]}],
+            },
         ],
-        "findings": [],
-        "topics": [],
-        "risks": [],
-        "open_questions": [],
+        "findings": [
+            {
+                "text": "Rata infecțiilor de plagă postoperatorie în T3: 4,2%, față de 2,9% în T2.",
+                "evidence": {"quote": "Patru virgulă doi la sută, față de doi virgulă nouă.", "lang": "ro", "segment_id": "segment-2", "t": "00:12:40", "speaker": "Participant 1"},
+                "flags": [{"type": "number", "reason": "S-a auzit „4,2%” sau „4,7%”?", "blocking": True, "candidates": ["4,2%", "4,7%"]}],
+            },
+            {
+                "text": "Antibioticul este administrat după incizie în 37% din cazuri.",
+                "evidence": {"quote": "в тридцати семи процентах случаев antibioticul se face după incizie", "lang": "mixed", "segment_id": "segment-3", "t": "00:14:05", "speaker": "Participant 4"},
+                "flags": [],
+            },
+        ],
+        "topics": [{"title": "Momentul administrării", "text": "Profilaxia este administrată prea târziu într-o parte semnificativă a cazurilor."}],
+        "risks": [{"text": "Pacienții alergici la beta-lactamine: alternativa nu a fost stabilită.", "category": "clinical", "raised_by": "Participant 2", "evidence": {"quote": "alergia la beta-lactamine trebuie clarificată separat", "lang": "ro", "segment_id": "segment-6", "t": "00:50:18", "speaker": "Participant 2"}}],
+        "open_questions": [{"text": "Schema alternativă pentru alergia la beta-lactamine.", "raised_by": "Participant 2"}],
     },
 }
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from copy import deepcopy
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -68,24 +69,25 @@ def transcription_document(
     job_id: str,
     text: str = "Mock multilingual transcript.",
     *,
-    confidence: float = 0.91,
+    confidence: float | None = 0.91,
 ) -> bytes:
     return json.dumps(
         {
-            "schemaVersion": "transcription.v1alpha1",
+            "schemaVersion": 1,
             "jobId": job_id,
             "transcript": {
                 "text": text,
                 "segments": [
                     {
-                        "id": "segment-1",
-                        "startMs": 0,
-                        "endMs": 3000,
+                        "id": f"segment-{index}",
+                        "startMs": (index - 1) * 3000,
+                        "endMs": index * 3000,
                         "speakerId": "speaker-1",
                         "languages": ["ro", "ru", "en"],
                         "text": text,
                         "confidence": confidence,
                     }
+                    for index in range(1, 7)
                 ],
             },
             "audioMetadata": {"durationMs": 3000},
@@ -114,18 +116,13 @@ def transcription_document(
     ).encode("utf-8")
 
 
-def mom_document(content: str = "Mock Minutes", confidence: float = 0.86) -> bytes:
-    return json.dumps(
-        {
-            "schemaVersion": "mom.v1alpha1",
-            "quality": {
-                "momConfidence": confidence,
-                "confidenceScale": "ZERO_TO_ONE",
-            },
-            "document": {"content": content},
-        },
-        separators=(",", ":"),
-    ).encode("utf-8")
+def mom_document(
+    content: str = "Mock Minutes", confidence: float | None = 0.86
+) -> bytes:
+    payload = deepcopy(MOCK_MOM_DOCUMENT)
+    payload["quality"]["momConfidence"] = confidence
+    payload["document"]["summary"] = content
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 def dispatch_audio(store: JobStore, job_id: str) -> str:
@@ -843,13 +840,12 @@ def test_mock_audio_service_pushes_transcription_callback_after_delay(
     assert request.headers["x-audio-model-job-id"] == submission.model_job_id
     assert request.headers["content-type"] == "application/json"
     document = json.loads(request.content)
-    assert document["schemaVersion"] == "transcription.v1alpha1"
+    assert document["schemaVersion"] == 1
     assert document["jobId"] == "pipeline-job"
     assert document["quality"]["transcriptConfidence"] == 0.91
-    assert document["transcript"]["text"] == (
-        "Participants agreed to validate the local pipeline demo. The integration "
-        "team will verify the review screen by 27 September 2026."
-    )
+    assert "cefazolina" in document["transcript"]["text"]
+    assert len(document["transcript"]["segments"]) == 6
+    assert document["audioMetadata"]["recordedAt"] == "2026-09-25T08:00:00Z"
 
     service.ensure_callback("pipeline-job", submission.model_job_id)
     assert len(requests) == 1
@@ -934,6 +930,34 @@ def test_mom_callback_persists_json_and_advances_to_review(
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "MOM_CONFLICT"
 
+
+def test_review_context_preserves_missing_model_confidence(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        transcription_document(job_id, confidence=None),
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.null-confidence"),
+        RecordingTextService(),
+    )
+    assert push_mom(client, job_id, "text-job-1", mom_document(confidence=None)).status_code == 202
+
+    context = client.get(f"/api/v1/jobs/{job_id}/review-context").json()
+    assert context["quality"] == {
+        "transcriptConfidence": None,
+        "momConfidence": None,
+        "overallConfidence": None,
+        "confidenceScale": "ZERO_TO_ONE",
+    }
 
 def test_mom_callback_validates_contract(
     client: TestClient,

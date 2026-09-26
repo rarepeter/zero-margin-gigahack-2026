@@ -18,7 +18,7 @@ class IntermediateTransformer(Protocol):
 
 
 class StructuredTranscriptionTransformer:
-    """Validate transcription.v1alpha1 and extract its complete transcript text."""
+    """Validate schema-version-1 transcription and extract its complete text."""
 
     def transform(self, source: TranscriptionSource) -> TextDocument:
         if source.media_type.split(";", 1)[0].strip().lower() != "application/json":
@@ -29,6 +29,6 @@ class StructuredTranscriptionTransformer:
             result = TranscriptionResult.model_validate_json(source.data)
         except (ValidationError, ValueError) as exc:
             raise IntermediateTransformationError(
-                "The transcription does not match transcription.v1alpha1"
+                "The transcription does not match schema version 1"
             ) from exc
         return TextDocument(text=result.transcript.text)

@@ -71,7 +71,7 @@ This endpoint now reads the persisted job state. Unknown IDs return `404`.
 ### `POST /api/v1/integrations/audio/jobs/{jobId}/transcription`
 
 Local integration endpoint used by the audio-to-text service after it finishes
-processing. Send a `transcription.v1alpha1` JSON object and the previously
+processing. Send a schema-version-1 transcription JSON object and the previously
 issued audio model job ID in `X-Audio-Model-Job-Id`. The object contains the
 complete transcript text, display segments, duration, language proportions,
 speakers, and transcript confidence. Its `jobId` must match the route. The
@@ -98,7 +98,7 @@ integration route, not a frontend operation.
 ### `POST /api/v1/integrations/text/jobs/{jobId}/mom`
 
 Local integration endpoint used by the text/MoM service after it finishes.
-Send a `mom.v1alpha1` JSON object as the raw `application/json` body and the
+Send a schema-version-1 MoM JSON object as the raw `application/json` body and the
 previously issued text model job ID in `X-Text-Model-Job-Id`. The envelope
 requires `quality.momConfidence` on the `ZERO_TO_ONE` scale while the detailed
 `document` content schema remains open. The default maximum is 10 MiB and is
@@ -122,7 +122,7 @@ media type returns `415`, and an oversized document returns `413`.
 
 ### `GET /api/v1/jobs/{jobId}/transcript`
 
-Return the separately persisted `transcription.v1alpha1` JSON result. This keeps
+Return the separately persisted schema-version-1 transcription JSON result. This keeps
 the potentially large segment list out of job-status and review-context reads.
 The derived `transcript.txt` remains an internal input to the text/MoM service.
 
@@ -132,14 +132,16 @@ transcript.
 ### `GET /api/v1/jobs/{jobId}/mom`
 
 Return the persisted draft MoM JSON after text processing succeeds. The
-`mom.v1alpha1` envelope and quality fields are validated, while the detailed
-`document` schema remains open; see `artifact-schemas.md`.
+schema-version-1 MoM envelope, quality fields, and the detailed review `document`
+are validated. Every MoM evidence record must reference a valid transcript
+`segment_id`; rendered timestamps and positional indexes are not authoritative.
+See `artifact-schemas.md`.
 
 Before the artifact exists, this endpoint returns `409 ARTIFACT_NOT_READY`.
 
 ### `GET /api/v1/jobs/{jobId}/review-context`
 
-Return compact `review-context.v1alpha1` metadata for the review page. It
+Return compact schema-version-1 review-context metadata for the review page. It
 contains the existing workflow state, source-recording and processing metadata,
 language/speaker aggregates, transcript and MoM confidence scores, and links to
 the separately loaded transcript and MoM resources. It does not contain either
@@ -148,7 +150,11 @@ state, or export gating.
 
 The persisted server-side artifact retains the submitter email for a future
 local notification component. The browser response intentionally omits that
-email. Before the context exists, return `409 ARTIFACT_NOT_READY`.
+email. Confidence values are nullable and are copied from the accepted audio
+and text artifacts without UI-side calculation. `recordedAt`, when supplied by
+the audio service from container metadata, is exposed separately from the job
+upload time; filesystem creation time is never treated as the meeting date.
+Before the context exists, return `409 ARTIFACT_NOT_READY`.
 
 ### `POST /api/v1/jobs/{jobId}/retry`
 

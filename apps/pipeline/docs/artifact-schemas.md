@@ -115,7 +115,7 @@ The initial pipeline is expected to stop at `AWAITING_REVIEW`. The role of
 
 ## Transcription artifacts
 
-The audio-to-text service pushes a validated `transcription.v1alpha1` JSON
+The audio-to-text service pushes a validated schema-version-1 transcription JSON
 document. The pipeline atomically preserves its original bytes at:
 
 ```text
@@ -144,15 +144,16 @@ The canonical artifact is UTF-8 JSON:
 mom/draft.json
 ```
 
-The definitive `document` content schema will be agreed later with the
-text-model and frontend workstreams. The surrounding envelope and its confidence
-field are agreed and validated now.
+The schema-version-1 `document` content schema is agreed and validated by the pipeline.
+It contains the existing portal header, summary, decisions, actions, findings,
+topics, risks, open questions, and optional patient grouping. The canonical
+schema is generated in `pipeline.openapi.json` as `MomDocument`.
 
 A valid development-mock envelope is:
 
 ```json
 {
-  "schemaVersion": "mom.v1alpha1",
+  "schemaVersion": 1,
   "quality": {
     "momConfidence": 0.86,
     "confidenceScale": "ZERO_TO_ONE"
@@ -178,6 +179,7 @@ A valid development-mock envelope is:
         "evidence": {
           "quote": "Participants agreed to validate the local pipeline demo.",
           "lang": "en",
+          "segment_id": "segment-1",
           "segment": 0,
           "t": "00:00:00",
           "speaker": "speaker-1"
@@ -198,6 +200,7 @@ A valid development-mock envelope is:
         "evidence": {
           "quote": "The integration team will verify the review screen by 27 September 2026.",
           "lang": "en",
+          "segment_id": "segment-1",
           "segment": 0,
           "t": "00:00:00",
           "speaker": "speaker-1"
@@ -217,10 +220,10 @@ The mock sends this object to the pipeline callback after a configurable
 five-second delay. The pipeline validates the versioned envelope and atomically
 persists the original bytes before advancing to `AWAITING_REVIEW`.
 
-The development mock uses the frontend's current provisional review-document
-shape so local integration can render it. The backend still validates
-`document` only as an object; this example does not finalize clinical,
-financial, administrative, executive, operational, or crisis-meeting fields.
+The development mock uses a richer multilingual review document with anonymous
+participants, decisions, actions, findings, and review flags. The pipeline
+validates the full document and verifies that every `segment_id` exists in the
+persisted transcription. `segment` and `t` are legacy display fallbacks only.
 
 ## Review-context artifact
 
@@ -233,9 +236,9 @@ content.
 
 The persisted artifact retains the submitter email for future local
 notification delivery. The browser-facing response projects that field out.
-`overallConfidence` is nullable because no aggregation rule has been agreed.
-There are no recommendation annotations, review-issue counts, or export-blocking
-fields in this contract.
+All three confidence values are nullable because no aggregation rule or model
+confidence calibration is assumed. There are no recommendation annotations,
+review-issue counts, or export-blocking fields in this contract.
 
 ## Operational events
 

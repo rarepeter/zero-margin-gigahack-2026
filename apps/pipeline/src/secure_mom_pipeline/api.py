@@ -342,7 +342,7 @@ async def receive_transcription(
         return _error(
             status.HTTP_400_BAD_REQUEST,
             "INVALID_TRANSCRIPTION_JSON",
-            "The transcription result does not match transcription.v1alpha1.",
+            "The transcription result does not match schema version 1.",
             False,
         )
     if transcription.job_id != job_id:
@@ -500,7 +500,7 @@ def _build_review_context(
         round((completed_at - state_model.created_at).total_seconds() * 1000),
     )
     return ReviewContext(
-        schema_version="review-context.v1alpha1",
+        schema_version=1,
         job_id=state_model.job_id,
         status=JobStatus.AWAITING_REVIEW,
         stage="review_ready",
@@ -512,6 +512,7 @@ def _build_review_context(
             media_type=state_model.source_recording.media_type,
             size_bytes=state_model.source_recording.size_bytes,
             duration_ms=transcription.audio_metadata.duration_ms,
+            recorded_at=transcription.audio_metadata.recorded_at,
         ),
         processing=ProcessingSummary(
             started_at=state_model.created_at,
@@ -550,6 +551,32 @@ def _build_review_context(
             ),
         ),
     )
+
+
+def _validate_mom_evidence(
+    mom: MomResult,
+    transcription: TranscriptionResult,
+) -> None:
+    """Reject a draft whose supporting statements point outside this transcript.
+
+    A segment ID, unlike a rendered timestamp or list offset, remains stable
+    when the portal changes sorting, filtering, or presentation.
+    """
+    segment_ids = {segment.id for segment in transcription.transcript.segments}
+    evidence = [
+        *(item.evidence for item in mom.document.decisions),
+        *(item.evidence for item in mom.document.actions),
+        *(item.evidence for item in mom.document.findings),
+        *(item.evidence for item in mom.document.risks if item.evidence is not None),
+        *(
+            item.evidence
+            for item in mom.document.open_questions
+            if item.evidence is not None
+        ),
+    ]
+    unknown = sorted({item.segment_id for item in evidence if item.segment_id not in segment_ids})
+    if unknown:
+        raise ValueError("The draft MoM references an unknown transcript segment")
 
 
 @app.post(
@@ -619,7 +646,7 @@ async def receive_mom(
         return _error(
             status.HTTP_400_BAD_REQUEST,
             "INVALID_MOM_JSON",
-            "The draft MoM does not match mom.v1alpha1.",
+            "The draft MoM does not match schema version 1.",
             False,
         )
 
@@ -683,6 +710,15 @@ async def receive_mom(
             transcription = TranscriptionResult.model_validate_json(
                 job_store.read_artifact_at(directory, transcription_descriptor)
             )
+            try:
+                _validate_mom_evidence(mom, transcription)
+            except ValueError:
+                return _error(
+                    status.HTTP_400_BAD_REQUEST,
+                    "INVALID_MOM_EVIDENCE",
+                    "The draft MoM references a transcript segment that is not available.",
+                    False,
+                )
             completed_at = utc_now()
             review_context = _build_review_context(
                 state_model=state_model,
@@ -819,7 +855,10 @@ def get_transcript(job_id: str) -> TranscriptionResult | JSONResponse:
             False,
         )
     logger.info("event=transcript_read job_id=%s", job_id)
-    return transcription
+    # Preserve the validated artifact's JSON shape. Re-serializing a Pydantic
+    # model would add optional null fields that the producing model did not
+    # send, which breaks exact artifact replay and fixture compatibility.
+    return JSONResponse(content=json.loads(data))
 
 
 @app.get(
@@ -862,7 +901,7 @@ def get_mom(job_id: str) -> MomResult | JSONResponse:
             False,
         )
     logger.info("event=mom_read job_id=%s", job_id)
-    return document
+    return JSONResponse(content=json.loads(data))
 
 
 @app.get(

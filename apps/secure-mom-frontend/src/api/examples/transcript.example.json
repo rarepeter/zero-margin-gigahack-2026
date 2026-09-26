@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "transcription.v1alpha1",
+  "schemaVersion": 1,
   "jobId": "mock-job",
   "transcript": {
     "text": "Bună ziua, colegi. Începem consiliul: revizuim profilaxia antibiotică perioperatorie după datele din trimestrul trei. Am adus datele de la statistică, dar raportul complet întârzie, говорят, до конца недели. Din partea farmaciei, cefazolina e disponibilă, but we need to check the stock pentru volumul estimat. În trimestrul trei avem patru virgulă doi… sau șapte? — Patru virgulă doi la sută, față de doi virgulă nouă. Problema e momentul administrării: в тридцати семи процентах случаев antibioticul se face după incizie, nu înainte. Ghidurile recomandă cefazolină 2 g, 30 to 60 minutes before incision. Noi avem încă cefuroximă în protocolul vechi. Propun să trecem pe cefazolină ca primă linie. Are cineva obiecții? I-am făcut două cubice de dimedrol și a trecut până dimineață. Pacientul a avut urticarie după anestezie; alergia la beta-lactamine trebuie clarificată separat. Deci, решили — cefazolina două grame, 30–60 minute înainte de incizie, de la întâi octombrie. Lungu, protocolul actualizat — până vineri viitoare, da? Da, mă ocup eu. OK, agreed — timpul administrării intră în checklist, înainte de time-out. Instruirea asistentelor o fac eu, до первого октября. Poate facem redosing la patru ore? — Да, но надо проверить с фармацией. Datele pentru auditul pe T4 trebuie scoase din sistem… cineva de la statistică. Pe cei cu suspiciune îi trimitem la tubdispanser, ca de obicei. Dacă apar probleme cu stocul, vă zvonesc direct. Mulțumesc, colegi. Închidem ședința.",
@@ -34,11 +34,11 @@
     ]
   },
   "speakers": [
-    { "id": "speaker-ciobanu", "displayName": "dr. Ciobanu", "languages": ["ro", "ru"], "speakingTimeProportion": 0.38 },
-    { "id": "speaker-rusu", "displayName": "dr. Rusu", "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.27 },
-    { "id": "speaker-lungu", "displayName": "farmacist clinician Lungu", "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.16 },
-    { "id": "speaker-moraru", "displayName": "asistenta-șefă Moraru", "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.15 },
-    { "id": "speaker-rusu-ciobanu", "displayName": "dr. Rusu / dr. Ciobanu", "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.04 }
+    { "id": "speaker-ciobanu", "displayName": null, "languages": ["ro", "ru"], "speakingTimeProportion": 0.38 },
+    { "id": "speaker-rusu", "displayName": null, "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.27 },
+    { "id": "speaker-lungu", "displayName": null, "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.16 },
+    { "id": "speaker-moraru", "displayName": null, "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.15 },
+    { "id": "speaker-rusu-ciobanu", "displayName": null, "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.04 }
   ],
   "quality": { "transcriptConfidence": 0.91, "confidenceScale": "ZERO_TO_ONE" }
 }

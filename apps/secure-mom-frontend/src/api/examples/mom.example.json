@@ -13,24 +13,24 @@
     },
     "participants_mentioned": [
       {
-        "name": "dr. Ciobanu",
-        "role": "conduce ședința",
-        "role_stated": false
-      },
-      {
-        "name": "dr. Rusu",
+        "name": "Participant 1",
         "role": null,
         "role_stated": false
       },
       {
-        "name": "Lungu",
-        "role": "farmacist clinician",
-        "role_stated": true
+        "name": "Participant 2",
+        "role": null,
+        "role_stated": false
       },
       {
-        "name": "Moraru",
-        "role": "asistentă-șefă",
-        "role_stated": true
+        "name": "Participant 3",
+        "role": null,
+        "role_stated": false
+      },
+      {
+        "name": "Participant 4",
+        "role": null,
+        "role_stated": false
       }
     ]
   },
@@ -44,6 +44,7 @@
         "quote": "Deci, решили — cefazolina două grame, 30–60 minute înainte de incizie, de la întâi octombrie.",
         "lang": "mixed",
         "segment": 9,
+        "segment_id": "segment-10",
         "t": "00:41:12",
         "speaker": "dr. Ciobanu"
       },
@@ -57,6 +58,7 @@
         "quote": "OK, agreed — timpul administrării intră în checklist, înainte de time-out.",
         "lang": "mixed",
         "segment": 12,
+        "segment_id": "segment-13",
         "t": "00:44:30",
         "speaker": "asistenta-șefă Moraru"
       },
@@ -70,6 +72,7 @@
         "quote": "Poate facem redosing la patru ore? — Да, но надо проверить с фармацией.",
         "lang": "mixed",
         "segment": 14,
+        "segment_id": "segment-15",
         "t": "00:46:05",
         "speaker": "dr. Rusu / dr. Ciobanu"
       },
@@ -93,7 +96,7 @@
       "decision_ids": [
         "D1"
       ],
-      "owner": "farmacist clinician Lungu",
+      "owner": "Participant 3",
       "deadline": {
         "spoken": "până vineri viitoare",
         "resolved": "2026-10-02"
@@ -102,6 +105,7 @@
         "quote": "Lungu, protocolul actualizat — până vineri viitoare, da?",
         "lang": "ro",
         "segment": 10,
+        "segment_id": "segment-11",
         "t": "00:43:10",
         "speaker": "dr. Ciobanu"
       },
@@ -124,7 +128,7 @@
         "D1",
         "D2"
       ],
-      "owner": "asistenta-șefă Moraru",
+      "owner": "Participant 4",
       "deadline": {
         "spoken": "до первого октября",
         "resolved": "2026-09-30"
@@ -133,6 +137,7 @@
         "quote": "Instruirea asistentelor o fac eu, до первого октября.",
         "lang": "mixed",
         "segment": 13,
+        "segment_id": "segment-14",
         "t": "00:44:52",
         "speaker": "asistenta-șefă Moraru"
       },
@@ -150,6 +155,7 @@
         "quote": "Datele pentru auditul pe T4 trebuie scoase din sistem… cineva de la statistică.",
         "lang": "ro",
         "segment": 15,
+        "segment_id": "segment-16",
         "t": "00:47:03",
         "speaker": "dr. Ciobanu"
       },
@@ -159,8 +165,8 @@
           "reason": "Nimeni nu a fost desemnat. Cine răspunde?",
           "blocking": true,
           "candidates": [
-            "dr. Rusu",
-            "asistenta-șefă Moraru"
+            "Participant 2",
+            "Participant 4"
           ]
         }
       ]
@@ -171,7 +177,7 @@
       "decision_ids": [
         "D3"
       ],
-      "owner": "dr. Rusu",
+      "owner": "Participant 2",
       "deadline": {
         "spoken": null,
         "resolved": null
@@ -180,6 +186,7 @@
         "quote": "Да, но надо проверить с фармацией.",
         "lang": "ru",
         "segment": 14,
+        "segment_id": "segment-15",
         "t": "00:46:05",
         "speaker": "dr. Ciobanu"
       },
@@ -193,6 +200,7 @@
         "quote": "În trimestrul trei avem patru virgulă doi… sau șapte? — Patru virgulă doi la sută, față de doi virgulă nouă.",
         "lang": "ro",
         "segment": 3,
+        "segment_id": "segment-4",
         "t": "00:12:40",
         "speaker": "dr. Ciobanu"
       },
@@ -214,6 +222,7 @@
         "quote": "в тридцати семи процентах случаев antibioticul se face după incizie, nu înainte.",
         "lang": "mixed",
         "segment": 4,
+        "segment_id": "segment-5",
         "t": "00:14:05",
         "speaker": "asistenta-șefă Moraru"
       },
@@ -225,6 +234,7 @@
         "quote": "I-am făcut două cubice de dimedrol și a trecut până dimineață.",
         "lang": "mixed",
         "segment": 7,
+        "segment_id": "segment-8",
         "t": "00:29:52",
         "speaker": "asistenta-șefă Moraru"
       },
@@ -251,11 +261,12 @@
     {
       "text": "Pacienții alergici la beta-lactamine: alternativa nu a fost stabilită.",
       "category": "clinical",
-      "raised_by": "dr. Rusu",
+      "raised_by": "Participant 2",
       "evidence": {
         "quote": "alergia la beta-lactamine trebuie clarificată separat.",
         "lang": "ro",
         "segment": 8,
+        "segment_id": "segment-9",
         "t": "00:31:10",
         "speaker": "dr. Rusu"
       }
@@ -263,11 +274,12 @@
     {
       "text": "Pacienții cu suspiciune de TB se trimit la dispensarul de ftiziopneumologie.",
       "category": "operational",
-      "raised_by": "dr. Rusu",
+      "raised_by": "Participant 2",
       "evidence": {
         "quote": "Pe cei cu suspiciune îi trimitem la tubdispanser, ca de obicei.",
         "lang": "mixed",
         "segment": 16,
+        "segment_id": "segment-17",
         "t": "00:50:18",
         "speaker": "dr. Rusu"
       }
@@ -276,7 +288,7 @@
   "open_questions": [
     {
       "text": "Schema alternativă pentru alergia la beta-lactamine.",
-      "raised_by": "dr. Rusu"
+      "raised_by": "Participant 2"
     }
   ]
 }

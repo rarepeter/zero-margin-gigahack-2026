@@ -1,6 +1,6 @@
 import type { TranscriptionResult } from '../api';
 
-/** Portal projection of one structured transcription.v1alpha1 segment. */
+/** Portal projection of one structured schema-version-1 transcription segment. */
 export interface Segment {
   id: string;
   index: number;
@@ -26,7 +26,10 @@ export function timestampFromMs(milliseconds: number): string {
 /** Map the backend contract to display fields without inventing speaker identities. */
 export function segmentsFromTranscription(result: TranscriptionResult): Segment[] {
   const speakerNames = new Map(
-    result.speakers.map((speaker) => [speaker.id, speaker.displayName ?? speaker.id]),
+    result.speakers.map((speaker, index) => [
+      speaker.id,
+      speaker.displayName ?? `Participant ${index + 1}`,
+    ]),
   );
   return result.transcript.segments.map((segment, index) => ({
     id: segment.id,

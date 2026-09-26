@@ -3,7 +3,7 @@
   "info": {
     "title": "Audio-processing ML API",
     "version": "0.1.0-contract",
-    "description": "Asynchronous local audio-to-text boundary. The service accepts a local recording reference, returns a model job ID, and pushes a transcription.v1alpha1 result to the configured pipeline callback."
+    "description": "Asynchronous local audio-to-text boundary. The service accepts a local recording reference, returns a model job ID, and pushes a schema-version-1 transcription result to the configured pipeline callback."
   },
   "paths": {
     "/health": {
@@ -67,7 +67,7 @@
         "additionalProperties": false,
         "required": ["schemaVersion", "jobId", "transcript", "audioMetadata", "languageDetection", "speakers", "quality"],
         "properties": {
-          "schemaVersion": {"type": "string", "const": "transcription.v1alpha1"},
+          "schemaVersion": {"type": "integer", "const": 1},
           "jobId": {"type": "string", "minLength": 1},
           "transcript": {"$ref": "#/components/schemas/TranscriptContent"},
           "audioMetadata": {"$ref": "#/components/schemas/AudioMetadata"},
@@ -142,5 +142,5 @@
       }
     }
   },
-  "x-contract-status": "Agreed v1alpha1 data shape; transport details remain adapter-owned"
+  "x-contract-status": "Agreed schema-version-1 data shape; transport details remain adapter-owned"
 }

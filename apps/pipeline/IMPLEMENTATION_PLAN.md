@@ -356,14 +356,14 @@ two-field mock MoM envelope. It changes data structures only; it does not add a
 new workflow, email delivery, portal editing, approval, export, or ML-generated
 review recommendations.
 
-- [x] Require `transcription.v1alpha1` JSON from the audio-to-text callback,
+- [x] Require schema-version-1 transcription JSON from the audio-to-text callback,
   including complete text, display segments, duration, language proportions,
   speakers, and transcript confidence.
 - [x] Preserve the structured source separately and derive
   `transcript/transcript.txt` for the existing text/MoM input.
-- [x] Require the `mom.v1alpha1` envelope with MoM confidence while leaving its
+- [x] Require the schema-version-1 MoM envelope with MoM confidence while leaving its
   detailed `document` object open.
-- [x] Persist compact `review-context.v1alpha1` metadata when the MoM is ready;
+- [x] Persist compact schema-version-1 review context when the MoM is ready;
   retain submitter email server-side but omit it from the browser projection.
 - [x] Keep authentication out of the public contract; source the assumed MVP
   submitter from fixed local demo configuration rather than upload headers.
@@ -383,3 +383,126 @@ and review context, and reached `AWAITING_REVIEW / review_ready`. The served API
 reported `0.5.0-provisional`; the browser review-context response propagated
 both confidence scores without exposing the submitter email, and the transcript
 was returned through its separate endpoint.
+
+# Portal UI integration
+
+Status: next implementation iteration
+
+The immediate next increment connects the portal UI to the existing
+review-ready backend boundary. During this increment, a developer or test flow
+may open the portal with a known pipeline job ID; automatic review-link creation
+and email notification remain paused below.
+
+The portal should:
+
+- resolve the job ID supplied by its route or local navigation state;
+- load `GET /api/v1/jobs/{jobId}/review-context` for compact page metadata;
+- load `GET /api/v1/jobs/{jobId}/mom` for the generated draft content;
+- load `GET /api/v1/jobs/{jobId}/transcript` separately and only when required;
+- represent loading, `ARTIFACT_NOT_READY`, not-found, and invalid-artifact
+  responses clearly;
+- display the existing workflow status, recording metadata, processing timing,
+  language and speaker aggregates, and quality scores alongside the MoM; and
+- avoid assuming authentication, recommendation annotations, issue counters,
+  export gating, or an approval/delivery contract.
+
+This increment covers loading and displaying the draft-review data. Editing,
+approval, download, export, and distribution are not silently included.
+
+# Post-MoM review and delivery requirements
+
+Status: accepted product scope; implementation pending
+
+These items extend the workflow from a review-ready MoM through author
+notification, portal review, recipient selection, approval, and local delivery.
+They must run entirely inside the hospital environment and remain usable while
+the demonstration machine is disconnected from the internet.
+
+## Stable internal review link
+
+- [ ] Define a configurable internal portal base URL suitable for the offline
+  demonstration environment.
+- [ ] Generate a stable review URL that resolves a pipeline `jobId`, for example
+  `/review/{jobId}`, without embedding meeting content or local filesystem
+  paths.
+- [ ] Decide whether the URL belongs only in the notification message or is
+  also persisted in schema-version-1 review context.
+- [ ] Keep authorization enforcement outside the MVP while documenting the
+  assumption that the hospital platform would authorize the authenticated user.
+- [ ] Test URL generation for configured base paths, ports, and job IDs.
+
+## Local notification email
+
+- [ ] Define a small notification model containing the recipient, subject,
+  review URL, job ID, and safe non-sensitive message text.
+- [ ] Create the notification only after `mom/draft.json` and
+  `review/context.json` are durably available at `AWAITING_REVIEW /
+  review_ready`.
+- [ ] Read the recipient from the server-side persisted submitter metadata; do
+  not expose the email through the browser-facing review-context response.
+- [ ] Add a replaceable local mail adapter and a deterministic development mock.
+- [ ] Use only the local demonstration mail environment. External SMTP, cloud
+  mail APIs, and runtime internet dependencies are prohibited.
+- [ ] Define idempotency so callback replay or process restart does not send
+  duplicate notifications.
+- [ ] Define bounded retry and failure behavior without discarding the valid MoM
+  and review-context artifacts.
+- [ ] Record metadata-only notification events without logging meeting content,
+  message bodies, or credentials.
+- [ ] Add automated and offline smoke coverage for message preparation and local
+  delivery.
+
+## Recipient selection, approval, and final delivery
+
+- [ ] Provide a local, internally maintained recipient-directory lookup that
+  supports surname-based autocomplete; do not use an external directory at
+  runtime.
+- [ ] Define a portal-to-backend approval request that persists the final edited
+  MoM and the author-selected recipient addresses or directory identifiers.
+- [ ] Generate the delivery email from the approved MoM and supported meeting
+  information; do not invent missing metadata.
+- [ ] Deliver through the replaceable local mail adapter only after approval,
+  using the submitting author's authorized institutional address as sender.
+- [ ] Confirm and document the local mail environment's send-as or delegated
+  sending policy; never spoof an arbitrary sender identity.
+- [ ] Make approval and final delivery idempotent, with clear delivery state,
+  bounded retries, and metadata-only operational events.
+- [ ] Set `COMPLETED` only after the local mail adapter accepts the final
+  delivery request; preserve the approved artifact if delivery later fails.
+- [ ] Add offline tests for directory lookup, recipient validation, sender
+  authorization, email composition, and local delivery.
+
+SSO implementation, account management, and full authorization enforcement
+remain outside the hackathon MVP. Word-level recommendations and ambiguity
+annotations also remain excluded until the ML team confirms it can provide
+reliable source data.
+
+# Current portal/pipeline contract decisions
+
+Status: implemented where marked; remaining items are deliberate backlog.
+
+- [x] Validate the existing schema-version-1 MoM review-document schema in the
+  pipeline, including stable evidence `segment_id` references.
+- [x] Make pipeline mock artifacts multilingual and review-rich, using anonymous
+  `Participant N` speaker labels rather than invented staff identities.
+- [x] Preserve optional `audioMetadata.recordedAt` through
+  `review/context.json`. This is a timestamp extracted by the audio service,
+  not a copied file's filesystem creation time or an assumed meeting date.
+- [x] Make transcript and MoM confidence nullable and propagate them unchanged
+  into review context; the UI hides rings when either value is unavailable.
+- [x] Remove the frontend rule that inferred `patient_case` implies
+  download-only delivery.
+- [ ] Define word-level review flags, editable-field targets, resolution
+  validation, and speaker-name substitution persistence when the ML team can
+  supply reliable annotations. The current frontend-only red-word behaviour is
+  not a backend contract.
+- [ ] Define approval/export/local-delivery endpoints and their idempotent
+  success/failure states. Until then, the portal must not treat a failed request
+  as confirmed delivery.
+- [ ] Define retention, discard, and purge policy. There is no job deletion API;
+  current deletion claims remain a known UI issue, not an implemented backend
+  capability.
+- [ ] Add a local recipient-directory endpoint and server-side recipient policy.
+  The current portal directory remains a demo stub.
+- [ ] Implement manual retry and readiness semantics after real local model
+  behaviour supplies the final timeout and error taxonomy.

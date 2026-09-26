@@ -76,7 +76,7 @@ export const mockApi: SecureMomApi = {
   async getMom() {
     await wait(150);
     return {
-      schemaVersion: 'mom.v1alpha1',
+      schemaVersion: 1,
       quality: { momConfidence: 0.86, confidenceScale: 'ZERO_TO_ONE' },
       document: structuredClone(momExample) as unknown as MomResult['document'],
     };
@@ -87,7 +87,7 @@ export const mockApi: SecureMomApi = {
     const createdAt = new Date(job.created).toISOString();
     const completedAt = new Date(Math.max(job.created + T_READY, Date.now())).toISOString();
     const response: ReviewContextResponse = {
-      schemaVersion: 'review-context.v1alpha1',
+      schemaVersion: 1,
       jobId,
       status: 'AWAITING_REVIEW',
       stage: 'review_ready',

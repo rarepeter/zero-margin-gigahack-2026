@@ -15,10 +15,13 @@ Last updated: 26 September 2026
   callbacks for the transcription and draft MoM artifacts.
 - Passing the recording path to the audio service and uploading a `.txt` file to
   the text/MoM service.
-- Atomic persistence of structured `transcription.v1alpha1` JSON and a derived
+- Atomic persistence of structured schema-version-1 transcription JSON and a derived
   UTF-8 plain-text input for the MoM service.
 - Validation and persistence of a draft MoM JSON document.
 - Persistence of compact review-context metadata when the draft becomes ready.
+- Local email notification to the configured submitting author when the review-ready draft is durably available.
+- A local recipient-directory lookup boundary that supports surname-based autocomplete in the portal.
+- Local delivery of the approved MoM to the recipients selected by the author, using an approved sending identity for that author.
 - Separate read endpoints for job status, review context, structured transcript,
   and draft MoM artifacts.
 - Configurable local ML endpoint URLs, ports, polling intervals, and timeouts.
@@ -34,21 +37,24 @@ Last updated: 26 September 2026
 
 ## Pipeline completion boundary
 
-The pipeline is complete when it has persisted and exposed a review-ready draft
-MoM JSON artifact.
+The processing stage is complete when the pipeline has persisted and exposed a
+review-ready draft MoM JSON artifact and has created the one-time local
+ready-for-review notification for the configured submitting author. The
+end-to-end product flow is complete when the portal records the author's
+approval and selected recipients, and the local mail adapter accepts the
+approved MoM for delivery.
 
 The frontend may display and edit that draft and may create ODF or DOCX files.
-Those editing and export functions are not pipeline responsibilities.
+Those editing and export functions remain frontend responsibilities, while the
+pipeline/backend owns local notification and delivery.
 
 ## Out of scope for the MVP
 
 - Running either ML model inside the pipeline process.
 - Direct communication between the two ML services.
 - Frontend implementation or frontend technology selection.
-- Saving user edits to the MoM in the pipeline.
-- Human approval workflow.
+- Incremental draft editing in the pipeline; it persists only the final approved snapshot submitted for delivery.
 - ODF or DOCX generation.
-- Email delivery or SMTP integration.
 - User accounts, authentication, authorization, and multi-user workflows.
 - Cancellation of running jobs.
 - Job deletion and automatic retention cleanup.
@@ -61,16 +67,21 @@ Those editing and export functions are not pipeline responsibilities.
   access.
 - Audio recording transfer from phones or other capture devices.
 - Audio enhancement and noise-removal stages.
-- A finalized MoM content schema.
-- Evidence linking and statement-level traceability metadata.
 - Automatic identification of unnamed speakers.
 
 ## Deferred decisions
 
-- Local SMTP and distribution-list delivery.
+- The precise local mail adapter, delivery-status contract, and retry policy.
+- The internal recipient-directory source and privacy/authorization policy.
+- The approved sender-identity mechanism (authorized send-as or delegated sending).
 - Whether the final application is run directly or packaged in containers.
 - Final ODF/DOCX generation approach in the frontend workstream.
 - Additional meeting categories beyond clinical, financial, administrative,
   executive, operational, and urgent-crisis workflows.
 - Data retention, cleanup, and deletion behavior beyond the hackathon.
+- Extraction reliability for embedded recording timestamps. If an audio model
+  supplies `audioMetadata.recordedAt`, the pipeline preserves it; it never
+  treats a copied file's filesystem creation time as the meeting date.
+- Rich evidence spans, reviewer-resolution validation, and speaker-name
+  substitution/persistence after review.
 - A stricter policy for logging meeting-derived content.

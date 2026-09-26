@@ -83,40 +83,44 @@ class MockAudioService:
         callback_succeeded = False
         try:
             callback_url = self.callback_url_template.format(job_id=pipeline_job_id)
-            text = (
-                "Participants agreed to validate the local pipeline demo. "
-                "The integration team will verify the review screen by "
-                "27 September 2026."
-            )
+            segments = [
+                ("segment-1", 8000, 135000, "speaker-1", ["ro"], "Bună ziua, colegi. Revizuim profilaxia antibiotică perioperatorie după datele din trimestrul trei.", 0.98),
+                ("segment-2", 760000, 845000, "speaker-1", ["ro"], "În trimestrul trei avem patru virgulă doi la sută, față de doi virgulă nouă.", 0.74),
+                ("segment-3", 845000, 1102000, "speaker-4", ["ro", "ru"], "Problema e momentul administrării: в тридцати семи процентах случаев antibioticul se face după incizie, nu înainte.", 0.90),
+                ("segment-4", 2472000, 2590000, "speaker-1", ["ro", "ru"], "Deci, решили — cefazolina două grame, 30–60 minute înainte de incizie. Protocolul actualizat — până vineri viitoare.", 0.93),
+                ("segment-5", 2598000, 2765000, "speaker-4", ["ro", "ru", "en"], "OK, agreed — timpul administrării intră în checklist, înainte de time-out. Instruirea asistentelor o fac eu, до первого октября.", 0.96),
+                ("segment-6", 2765000, 3100000, "speaker-2", ["ro", "ru", "en"], "Poate facem redosing la patru ore? — Да, но надо проверить с фармацией. Datele pentru auditul pe T4 trebuie scoase din sistem… cineva de la statistică. alergia la beta-lactamine trebuie clarificată separat.", 0.82),
+            ]
+            text = " ".join(segment[5] for segment in segments)
             transcription = json.dumps(
                 {
-                    "schemaVersion": "transcription.v1alpha1",
+                    "schemaVersion": 1,
                     "jobId": pipeline_job_id,
                     "transcript": {
                         "text": text,
                         "segments": [
-                            {
-                                "id": "segment-1",
-                                "startMs": 0,
-                                "endMs": 8000,
-                                "speakerId": "speaker-1",
-                                "languages": ["en"],
-                                "text": text,
-                                "confidence": 0.94,
-                            }
+                            {"id": segment_id, "startMs": start_ms, "endMs": end_ms,
+                             "speakerId": speaker_id, "languages": languages,
+                             "text": segment_text, "confidence": confidence}
+                            for segment_id, start_ms, end_ms, speaker_id, languages, segment_text, confidence in segments
                         ],
                     },
-                    "audioMetadata": {"durationMs": 8000},
+                    "audioMetadata": {
+                        "durationMs": 3120000,
+                        "recordedAt": "2026-09-25T08:00:00Z",
+                    },
                     "languageDetection": {
-                        "languages": [{"code": "en", "proportion": 1.0}]
+                        "languages": [
+                            {"code": "ro", "proportion": 0.71},
+                            {"code": "ru", "proportion": 0.21},
+                            {"code": "en", "proportion": 0.08},
+                        ]
                     },
                     "speakers": [
-                        {
-                            "id": "speaker-1",
-                            "displayName": None,
-                            "languages": ["en"],
-                            "speakingTimeProportion": 1.0,
-                        }
+                        {"id": "speaker-1", "displayName": None, "languages": ["ro", "ru"], "speakingTimeProportion": 0.38},
+                        {"id": "speaker-2", "displayName": None, "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.27},
+                        {"id": "speaker-3", "displayName": None, "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.16},
+                        {"id": "speaker-4", "displayName": None, "languages": ["ro", "ru", "en"], "speakingTimeProportion": 0.19},
                     ],
                     "quality": {
                         "transcriptConfidence": 0.91,

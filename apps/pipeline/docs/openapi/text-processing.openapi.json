@@ -3,7 +3,7 @@
   "info": {
     "title": "Text-processing ML API",
     "version": "0.1.0-contract",
-    "description": "Asynchronous local transcript-to-MoM boundary. The pipeline supplies a UTF-8 transcript.txt file and the service pushes a mom.v1alpha1 result to the configured pipeline callback."
+    "description": "Asynchronous local transcript-to-MoM boundary. The pipeline supplies a UTF-8 transcript.txt file and the service pushes a schema-version-1 MoM result to the configured pipeline callback."
   },
   "paths": {
     "/health": {
@@ -86,7 +86,7 @@
         "additionalProperties": false,
         "required": ["schemaVersion", "quality", "document"],
         "properties": {
-          "schemaVersion": {"type": "string", "const": "mom.v1alpha1"},
+          "schemaVersion": {"type": "integer", "const": 1},
           "quality": {"$ref": "#/components/schemas/MomQuality"},
           "document": {
             "type": "object",
@@ -106,5 +106,5 @@
       }
     }
   },
-  "x-contract-status": "Agreed v1alpha1 envelope and quality shape; detailed document content remains open"
+  "x-contract-status": "Agreed schema-version-1 envelope, quality shape, and review document"
 }

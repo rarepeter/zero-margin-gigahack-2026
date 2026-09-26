@@ -7,8 +7,10 @@ requirement.
 ## Product boundary
 
 The pipeline owns the flow from an uploaded meeting recording through a
-persisted draft MoM JSON artifact. It does not own frontend editing, ODF/DOCX
-export, final approval, or email delivery.
+persisted draft MoM JSON artifact, notification of the configured submitting
+author, and the local delivery boundary after the portal records approval. The
+frontend owns draft editing, recipient interaction, and document presentation;
+the precise approval and document-transfer contract remains to be defined.
 
 The two ML systems are independent, externally started local services. They do
 not call one another. The pipeline invokes each service through its own adapter,
@@ -44,12 +46,12 @@ through configuration, not hard-coded.
 
 ## Specification discipline
 
-The public API routes and detailed MoM `document` schema remain drafts. Keep
-their version markers and avoid inventing clinical, financial, administrative,
-or operational fields or making provisional shapes appear final. The accepted
-audio result is `transcription.v1alpha1` JSON; `transcript.text` is derived into
-plain text only for the MoM service. The accepted MoM envelope is
-`mom.v1alpha1`, and compact portal metadata is `review-context.v1alpha1`.
-Traceability/recommendation metadata, content-logging policy, deployment
-containers, SMTP, and the definitive MoM `document` schema remain unresolved or
-deferred.
+The public API routes remain drafts, but the schema-version-1 MoM `document` is
+now a validated portal contract. Keep its numeric version marker and avoid
+inventing clinical, financial, administrative, or operational fields. The
+accepted audio result is schema-version-1 transcription JSON; `transcript.text` is
+derived into plain text only for the MoM service. The accepted MoM envelope is
+schema-version-1 MoM JSON, and compact portal metadata is schema-version-1 review context.
+Rich word-level recommendations, content-logging policy, deployment containers,
+the local mail adapter contract, and recipient-directory source remain
+unresolved.

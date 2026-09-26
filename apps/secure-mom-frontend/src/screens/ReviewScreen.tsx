@@ -12,8 +12,9 @@ export function ReviewScreen() {
 
   const onEvidence = (issue: Issue) => {
     const ev = issue.evidence;
-    const byTime = ev.t ? s.segments.find((x) => x.t === ev.t) : undefined;
-    const seg = byTime?.index ?? ev.segment;
+    const byId = ev.segment_id ? s.segments.find((x) => x.id === ev.segment_id) : undefined;
+    const byTime = !byId && ev.t ? s.segments.find((x) => x.t === ev.t) : undefined;
+    const seg = byId?.index ?? byTime?.index ?? ev.segment ?? 0;
     setFocus((f) => ({ seg, n: (f?.n ?? 0) + 1 }));
   };
 

@@ -3,7 +3,8 @@ export type Lang = 'ro' | 'ru' | 'en' | 'mixed';
 export type MeetingType = 'medical' | 'patient_case' | 'financial' | 'administrative' | 'executive' | 'operational' | 'crisis' | 'other';
 export type FlagType = 'number' | 'decision_status' | 'owner' | 'deadline' | 'term';
 
-export interface Evidence { quote: string; lang: Lang; segment: number; t?: string | null; speaker?: string | null }
+/** `segment_id` is the stable transcript reference. `segment` remains only for old saved fixtures. */
+export interface Evidence { quote: string; lang: Lang; segment_id?: string; segment?: number; t?: string | null; speaker?: string | null }
 export interface Flag { type: FlagType; reason: string; blocking: boolean; candidates?: string[] }
 export interface Decision { id: string; text: string; status: 'decided' | 'proposed' | 'revoked'; revised_in_meeting?: boolean; evidence: Evidence; flags: Flag[] }
 export interface Action { id: string; text: string; decision_ids?: string[]; owner: string | null; deadline: { spoken: string | null; resolved: string | null }; evidence: Evidence; flags: Flag[] }

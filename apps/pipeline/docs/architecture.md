@@ -22,7 +22,7 @@ Pipeline worker                                     |
    |                                                |
    | adapter A: submit                               |
    +----------> Audio-processing ML service --------+
-   |             | transcription.v1alpha1 JSON       |
+   |             | transcription JSON (schema 1)      |
    |<------------+                                   |
    |                                                |
    | adapter B: multipart .txt submit                |
@@ -34,6 +34,15 @@ Pipeline worker                                     |
 All components run on the same physical MacBook. The ML services are started
 outside the pipeline and configured by local endpoint URL and port. Neither ML
 service calls the other.
+
+After the draft becomes review-ready, the pipeline sends a local email
+notification to the configured submitting author. The portal then lets that
+author edit and approve the draft and select recipients through surname-based
+autocomplete from an internal directory. The backend composes the final message
+from the approved MoM and supported meeting information, and hands it to a
+local mail adapter using the author's authorized institutional sending identity.
+The portal, directory, mail adapter, and all message data remain within the
+local hospital environment.
 
 ## Process responsibilities
 
@@ -76,7 +85,7 @@ get_result(model_job_id) -> local path or response payload
 ```
 
 The implemented audio completion boundary is a pipeline callback that accepts a
-validated `transcription.v1alpha1` JSON body correlated by pipeline and audio
+validated schema-version-1 transcription JSON body correlated by pipeline and audio
 model job IDs. The text adapter accepts the derived UTF-8 `.txt` path internally
 and translates it into a multipart upload.
 
@@ -91,7 +100,7 @@ persists `transcript/source.json`, extracts its complete `transcript.text` into
 `transcript/transcript.txt`, and uploads that file to the text/MoM service.
 
 The development text/MoM mock returns a generated `mock-text-...` job ID and
-sends a deterministic `mom.v1alpha1` JSON document with `momConfidence` to the
+sends a deterministic schema-version-1 MoM JSON document with `momConfidence` to the
 pipeline callback after a configurable five-second delay. Worker recovery
 re-schedules this callback for persisted jobs still at `text_processing`.
 
@@ -116,9 +125,9 @@ transferred over local HTTP.
 
 ```text
 recording file path -> audio service
-transcription.v1alpha1 JSON -> pipeline callback
+transcription JSON (schema 1) -> pipeline callback
 transcript.txt multipart upload -> text service
-mom.v1alpha1 JSON -> pipeline callback
+MoM JSON (schema 1) -> pipeline callback
 ```
 
 At the review-ready checkpoint, the pipeline also persists compact
@@ -144,10 +153,12 @@ COMPLETED
 FAILED
 ```
 
-For the current pipeline boundary, `AWAITING_REVIEW` means the draft MoM JSON is
-available to the frontend. `COMPLETED` is reserved for future alignment with the
-frontend review/export workflow and may not be emitted by the initial pipeline.
-This distinction must be resolved when the public API is finalized.
+`AWAITING_REVIEW` means the draft MoM JSON is available to the frontend and the
+submitting author has been notified through the local mail adapter.
+`COMPLETED` should be emitted only after the author-approved MoM has been
+accepted for local delivery to the recipients selected through the internal
+directory. The detailed approval, delivery-status, and retry contract remains
+open for the public API.
 
 State updates use a temporary file followed by an atomic rename. Artifacts are
 validated and atomically installed before the state advances. A process restart

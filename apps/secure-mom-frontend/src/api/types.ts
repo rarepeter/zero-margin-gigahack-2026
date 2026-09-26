@@ -29,9 +29,9 @@ export interface SecureMomApi {
   createJob(audio: Blob, filename: string): Promise<CreateJobResponse>;
   /** GET /api/v1/jobs/{id} — poll until AWAITING_REVIEW or FAILED. */
   getJob(jobId: string): Promise<JobStatusResponse>;
-  /** GET /api/v1/jobs/{id}/transcript — transcription.v1alpha1 JSON. */
+  /** GET /api/v1/jobs/{id}/transcript — transcription JSON with schemaVersion 1. */
   getTranscript(jobId: string): Promise<TranscriptionResult>;
-  /** GET /api/v1/jobs/{id}/mom — mom.v1alpha1 JSON envelope. */
+  /** GET /api/v1/jobs/{id}/mom — MoM JSON with schemaVersion 1. */
   getMom(jobId: string): Promise<MomResult>;
   /** GET /api/v1/jobs/{id}/review-context — compact portal metadata and quality. */
   getReviewContext(jobId: string): Promise<ReviewContextResponse>;

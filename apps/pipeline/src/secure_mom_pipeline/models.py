@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -203,6 +203,10 @@ class TranscriptContent(ContractModel):
 
 class AudioMetadata(ContractModel):
     duration_ms: int = Field(alias="durationMs", gt=0)
+    # The audio service may extract a container/recording timestamp.  The
+    # pipeline never substitutes the filesystem creation time: that time can
+    # change when a recording is copied to the demo machine.
+    recorded_at: datetime | None = Field(default=None, alias="recordedAt")
 
 
 class DetectedLanguage(ContractModel):
@@ -226,14 +230,19 @@ class TranscriptionSpeaker(ContractModel):
 
 
 class TranscriptionQuality(ContractModel):
-    transcript_confidence: float = Field(alias="transcriptConfidence", ge=0, le=1)
+    transcript_confidence: float | None = Field(
+        default=None,
+        alias="transcriptConfidence",
+        ge=0,
+        le=1,
+    )
     confidence_scale: Literal["ZERO_TO_ONE"] = Field(
         alias="confidenceScale",
     )
 
 
 class TranscriptionResult(ContractModel):
-    schema_version: Literal["transcription.v1alpha1"] = Field(alias="schemaVersion")
+    schema_version: Literal[1] = Field(alias="schemaVersion")
     job_id: str = Field(alias="jobId", min_length=1)
     transcript: TranscriptContent
     audio_metadata: AudioMetadata = Field(alias="audioMetadata")
@@ -243,16 +252,145 @@ class TranscriptionResult(ContractModel):
 
 
 class MomQuality(ContractModel):
-    mom_confidence: float = Field(alias="momConfidence", ge=0, le=1)
+    mom_confidence: float | None = Field(
+        default=None,
+        alias="momConfidence",
+        ge=0,
+        le=1,
+    )
     confidence_scale: Literal["ZERO_TO_ONE"] = Field(
         alias="confidenceScale",
     )
 
 
+MomLanguage = Literal["ro", "ru", "en", "mixed"]
+MeetingType = Literal[
+    "medical",
+    "patient_case",
+    "financial",
+    "administrative",
+    "executive",
+    "operational",
+    "crisis",
+    "other",
+]
+FlagType = Literal["number", "decision_status", "owner", "deadline", "term"]
+
+
+class MomEvidence(ContractModel):
+    """Trace an MoM statement to an immutable transcription segment ID."""
+
+    quote: str = Field(min_length=1)
+    lang: MomLanguage
+    segment_id: str = Field(min_length=1)
+    # Kept only as a migration aid for the current portal fixture. New model
+    # output and all new consumers must use segment_id.
+    segment: int | None = Field(default=None, ge=0)
+    t: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}:\d{2}$")
+    speaker: str | None = None
+
+
+class MomFlag(ContractModel):
+    type: FlagType
+    reason: str = Field(min_length=1)
+    blocking: bool
+    candidates: list[str] | None = None
+
+
+class MomParticipant(ContractModel):
+    name: str = Field(min_length=1)
+    role: str | None = None
+    role_stated: bool | None = None
+
+
+class MomHeader(ContractModel):
+    subject: str = Field(min_length=1, max_length=120)
+    meeting_type: MeetingType
+    meeting_type_confidence: Literal["high", "medium", "low"]
+    date: date
+    date_source: Literal["recording", "upload"]
+    duration_min: int | None = Field(default=None, ge=0)
+    languages: dict[Literal["ro", "ru", "en"], float] | None = None
+    participants_mentioned: list[MomParticipant] | None = None
+    also_discussed: list[MeetingType] | None = None
+
+
+class MomDecision(ContractModel):
+    id: str = Field(pattern=r"^D\d+$")
+    text: str = Field(min_length=1)
+    status: Literal["decided", "proposed", "revoked"]
+    revised_in_meeting: bool | None = None
+    evidence: MomEvidence
+    flags: list[MomFlag]
+
+
+class MomDeadline(ContractModel):
+    spoken: str | None = None
+    resolved: date | None = None
+
+
+class MomAction(ContractModel):
+    id: str = Field(pattern=r"^A\d+$")
+    text: str = Field(min_length=1)
+    decision_ids: list[str] | None = None
+    owner: str | None = None
+    deadline: MomDeadline
+    evidence: MomEvidence
+    flags: list[MomFlag]
+
+
+class MomFinding(ContractModel):
+    text: str = Field(min_length=1)
+    source_stated: str | None = None
+    evidence: MomEvidence
+    flags: list[MomFlag]
+
+
+class MomTopic(ContractModel):
+    title: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+
+
+class MomRisk(ContractModel):
+    text: str = Field(min_length=1)
+    category: Literal[
+        "clinical", "safety", "technical", "regulatory", "data_quality", "operational"
+    ] | None = None
+    raised_by: str | None = None
+    evidence: MomEvidence | None = None
+
+
+class MomOpenQuestion(ContractModel):
+    text: str = Field(min_length=1)
+    raised_by: str | None = None
+    evidence: MomEvidence | None = None
+
+
+class MomPatient(ContractModel):
+    reference: str = Field(min_length=1)
+    findings: list[str] | None = None
+    decision_ids: list[str]
+    plan: str | None = None
+
+
+class MomDocument(ContractModel):
+    """The validated schema-version-1 review document consumed by the portal."""
+
+    header: MomHeader
+    summary: str = Field(min_length=1)
+    decisions: list[MomDecision]
+    actions: list[MomAction]
+    findings: list[MomFinding]
+    topics: list[MomTopic]
+    risks: list[MomRisk]
+    open_questions: list[MomOpenQuestion]
+    patients: list[MomPatient] | None = None
+
+
 class MomResult(ContractModel):
-    schema_version: Literal["mom.v1alpha1"] = Field(alias="schemaVersion")
+    schema_version: Literal[1] = Field(alias="schemaVersion")
     quality: MomQuality
-    document: dict[str, Any]
+    document: MomDocument
 
 
 class ProcessingSummary(PipelineModel):
@@ -263,6 +401,7 @@ class ProcessingSummary(PipelineModel):
 
 class ReviewSourceRecording(SourceRecording):
     duration_ms: int = Field(alias="durationMs", gt=0)
+    recorded_at: datetime | None = Field(default=None, alias="recordedAt")
 
 
 class MeetingMetadata(PipelineModel):
@@ -273,8 +412,18 @@ class MeetingMetadata(PipelineModel):
 
 
 class ReviewQuality(PipelineModel):
-    transcript_confidence: float = Field(alias="transcriptConfidence", ge=0, le=1)
-    mom_confidence: float = Field(alias="momConfidence", ge=0, le=1)
+    transcript_confidence: float | None = Field(
+        default=None,
+        alias="transcriptConfidence",
+        ge=0,
+        le=1,
+    )
+    mom_confidence: float | None = Field(
+        default=None,
+        alias="momConfidence",
+        ge=0,
+        le=1,
+    )
     overall_confidence: float | None = Field(
         alias="overallConfidence",
         ge=0,
@@ -298,7 +447,7 @@ class ReviewArtifactLinks(PipelineModel):
 class ReviewContext(ContractModel):
     """Persisted server-side context, including the notification recipient."""
 
-    schema_version: Literal["review-context.v1alpha1"] = Field(alias="schemaVersion")
+    schema_version: Literal[1] = Field(alias="schemaVersion")
     job_id: str = Field(alias="jobId", min_length=1)
     status: JobStatus
     stage: str
@@ -316,7 +465,7 @@ class ReviewContext(ContractModel):
 class ReviewContextResponse(ContractModel):
     """Browser-facing context with the submitter email intentionally omitted."""
 
-    schema_version: Literal["review-context.v1alpha1"] = Field(alias="schemaVersion")
+    schema_version: Literal[1] = Field(alias="schemaVersion")
     job_id: str = Field(alias="jobId", min_length=1)
     status: JobStatus
     stage: str

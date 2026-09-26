@@ -198,6 +198,8 @@ export interface components {
         AudioMetadata: {
             /** Durationms */
             durationMs: number;
+            /** Recordedat */
+            recordedAt?: string | null;
         };
         /** Body_create_job_api_v1_jobs_post */
         Body_create_job_api_v1_jobs_post: {
@@ -295,6 +297,176 @@ export interface components {
             /** Speakercount */
             speakerCount: number;
         };
+        /** MomAction */
+        MomAction: {
+            deadline: components["schemas"]["MomDeadline"];
+            /** Decision Ids */
+            decision_ids?: string[] | null;
+            evidence: components["schemas"]["MomEvidence"];
+            /** Flags */
+            flags: components["schemas"]["MomFlag"][];
+            /** Id */
+            id: string;
+            /** Owner */
+            owner?: string | null;
+            /** Text */
+            text: string;
+        };
+        /** MomDeadline */
+        MomDeadline: {
+            /** Resolved */
+            resolved?: string | null;
+            /** Spoken */
+            spoken?: string | null;
+        };
+        /** MomDecision */
+        MomDecision: {
+            evidence: components["schemas"]["MomEvidence"];
+            /** Flags */
+            flags: components["schemas"]["MomFlag"][];
+            /** Id */
+            id: string;
+            /** Revised In Meeting */
+            revised_in_meeting?: boolean | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "decided" | "proposed" | "revoked";
+            /** Text */
+            text: string;
+        };
+        /**
+         * MomDocument
+         * @description The validated schema-version-1 review document consumed by the portal.
+         */
+        MomDocument: {
+            /** Actions */
+            actions: components["schemas"]["MomAction"][];
+            /** Decisions */
+            decisions: components["schemas"]["MomDecision"][];
+            /** Findings */
+            findings: components["schemas"]["MomFinding"][];
+            header: components["schemas"]["MomHeader"];
+            /** Open Questions */
+            open_questions: components["schemas"]["MomOpenQuestion"][];
+            /** Patients */
+            patients?: components["schemas"]["MomPatient"][] | null;
+            /** Risks */
+            risks: components["schemas"]["MomRisk"][];
+            /** Summary */
+            summary: string;
+            /** Topics */
+            topics: components["schemas"]["MomTopic"][];
+        };
+        /**
+         * MomEvidence
+         * @description Trace an MoM statement to an immutable transcription segment ID.
+         */
+        MomEvidence: {
+            /**
+             * Lang
+             * @enum {string}
+             */
+            lang: "ro" | "ru" | "en" | "mixed";
+            /** Quote */
+            quote: string;
+            /** Segment */
+            segment?: number | null;
+            /** Segment Id */
+            segment_id: string;
+            /** Speaker */
+            speaker?: string | null;
+            /** T */
+            t?: string | null;
+        };
+        /** MomFinding */
+        MomFinding: {
+            evidence: components["schemas"]["MomEvidence"];
+            /** Flags */
+            flags: components["schemas"]["MomFlag"][];
+            /** Source Stated */
+            source_stated?: string | null;
+            /** Text */
+            text: string;
+        };
+        /** MomFlag */
+        MomFlag: {
+            /** Blocking */
+            blocking: boolean;
+            /** Candidates */
+            candidates?: string[] | null;
+            /** Reason */
+            reason: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "number" | "decision_status" | "owner" | "deadline" | "term";
+        };
+        /** MomHeader */
+        MomHeader: {
+            /** Also Discussed */
+            also_discussed?: ("medical" | "patient_case" | "financial" | "administrative" | "executive" | "operational" | "crisis" | "other")[] | null;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /**
+             * Date Source
+             * @enum {string}
+             */
+            date_source: "recording" | "upload";
+            /** Duration Min */
+            duration_min?: number | null;
+            /** Languages */
+            languages?: {
+                [key: string]: number;
+            } | null;
+            /**
+             * Meeting Type
+             * @enum {string}
+             */
+            meeting_type: "medical" | "patient_case" | "financial" | "administrative" | "executive" | "operational" | "crisis" | "other";
+            /**
+             * Meeting Type Confidence
+             * @enum {string}
+             */
+            meeting_type_confidence: "high" | "medium" | "low";
+            /** Participants Mentioned */
+            participants_mentioned?: components["schemas"]["MomParticipant"][] | null;
+            /** Subject */
+            subject: string;
+        };
+        /** MomOpenQuestion */
+        MomOpenQuestion: {
+            evidence?: components["schemas"]["MomEvidence"] | null;
+            /** Raised By */
+            raised_by?: string | null;
+            /** Text */
+            text: string;
+        };
+        /** MomParticipant */
+        MomParticipant: {
+            /** Name */
+            name: string;
+            /** Role */
+            role?: string | null;
+            /** Role Stated */
+            role_stated?: boolean | null;
+        };
+        /** MomPatient */
+        MomPatient: {
+            /** Decision Ids */
+            decision_ids: string[];
+            /** Findings */
+            findings?: string[] | null;
+            /** Plan */
+            plan?: string | null;
+            /** Reference */
+            reference: string;
+        };
         /** MomQuality */
         MomQuality: {
             /**
@@ -303,7 +475,7 @@ export interface components {
              */
             confidenceScale: "ZERO_TO_ONE";
             /** Momconfidence */
-            momConfidence: number;
+            momConfidence?: number | null;
         };
         /** MomReceipt */
         MomReceipt: {
@@ -317,16 +489,30 @@ export interface components {
         };
         /** MomResult */
         MomResult: {
-            /** Document */
-            document: {
-                [key: string]: unknown;
-            };
+            document: components["schemas"]["MomDocument"];
             quality: components["schemas"]["MomQuality"];
             /**
              * Schemaversion
              * @constant
              */
-            schemaVersion: "mom.v1alpha1";
+            schemaVersion: 1;
+        };
+        /** MomRisk */
+        MomRisk: {
+            /** Category */
+            category?: ("clinical" | "safety" | "technical" | "regulatory" | "data_quality" | "operational") | null;
+            evidence?: components["schemas"]["MomEvidence"] | null;
+            /** Raised By */
+            raised_by?: string | null;
+            /** Text */
+            text: string;
+        };
+        /** MomTopic */
+        MomTopic: {
+            /** Text */
+            text: string;
+            /** Title */
+            title: string;
         };
         /** ProcessingSummary */
         ProcessingSummary: {
@@ -375,7 +561,7 @@ export interface components {
              * Schemaversion
              * @constant
              */
-            schemaVersion: "review-context.v1alpha1";
+            schemaVersion: 1;
             sourceRecording: components["schemas"]["ReviewSourceRecording"];
             /** Speakers */
             speakers: components["schemas"]["TranscriptionSpeaker"][];
@@ -397,11 +583,11 @@ export interface components {
              */
             confidenceScale: "ZERO_TO_ONE";
             /** Momconfidence */
-            momConfidence: number;
+            momConfidence?: number | null;
             /** Overallconfidence */
             overallConfidence: number | null;
             /** Transcriptconfidence */
-            transcriptConfidence: number;
+            transcriptConfidence?: number | null;
         };
         /** ReviewSourceRecording */
         ReviewSourceRecording: {
@@ -411,6 +597,8 @@ export interface components {
             mediaType: string;
             /** Originalfilename */
             originalFileName: string;
+            /** Recordedat */
+            recordedAt?: string | null;
             /** Sizebytes */
             sizeBytes: number;
         };
@@ -446,7 +634,7 @@ export interface components {
              */
             confidenceScale: "ZERO_TO_ONE";
             /** Transcriptconfidence */
-            transcriptConfidence: number;
+            transcriptConfidence?: number | null;
         };
         /** TranscriptionReceipt */
         TranscriptionReceipt: {
@@ -469,7 +657,7 @@ export interface components {
              * Schemaversion
              * @constant
              */
-            schemaVersion: "transcription.v1alpha1";
+            schemaVersion: 1;
             /** Speakers */
             speakers: components["schemas"]["TranscriptionSpeaker"][];
             transcript: components["schemas"]["TranscriptContent"];

@@ -49,6 +49,18 @@
             "exclusiveMinimum": 0.0,
             "title": "Durationms",
             "type": "integer"
+          },
+          "recordedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recordedat"
           }
         },
         "required": [
@@ -305,6 +317,634 @@
         "title": "MeetingMetadata",
         "type": "object"
       },
+      "MomAction": {
+        "additionalProperties": false,
+        "properties": {
+          "deadline": {
+            "$ref": "#/components/schemas/MomDeadline"
+          },
+          "decision_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Ids"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/MomEvidence"
+          },
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/MomFlag"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "id": {
+            "pattern": "^A\\d+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "deadline",
+          "evidence",
+          "flags"
+        ],
+        "title": "MomAction",
+        "type": "object"
+      },
+      "MomDeadline": {
+        "additionalProperties": false,
+        "properties": {
+          "resolved": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved"
+          },
+          "spoken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spoken"
+          }
+        },
+        "title": "MomDeadline",
+        "type": "object"
+      },
+      "MomDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "$ref": "#/components/schemas/MomEvidence"
+          },
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/MomFlag"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "id": {
+            "pattern": "^D\\d+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "revised_in_meeting": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revised In Meeting"
+          },
+          "status": {
+            "enum": [
+              "decided",
+              "proposed",
+              "revoked"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "status",
+          "evidence",
+          "flags"
+        ],
+        "title": "MomDecision",
+        "type": "object"
+      },
+      "MomDocument": {
+        "additionalProperties": false,
+        "description": "The validated schema-version-1 review document consumed by the portal.",
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/MomAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/MomDecision"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/MomFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "header": {
+            "$ref": "#/components/schemas/MomHeader"
+          },
+          "open_questions": {
+            "items": {
+              "$ref": "#/components/schemas/MomOpenQuestion"
+            },
+            "title": "Open Questions",
+            "type": "array"
+          },
+          "patients": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MomPatient"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patients"
+          },
+          "risks": {
+            "items": {
+              "$ref": "#/components/schemas/MomRisk"
+            },
+            "title": "Risks",
+            "type": "array"
+          },
+          "summary": {
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/MomTopic"
+            },
+            "title": "Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "header",
+          "summary",
+          "decisions",
+          "actions",
+          "findings",
+          "topics",
+          "risks",
+          "open_questions"
+        ],
+        "title": "MomDocument",
+        "type": "object"
+      },
+      "MomEvidence": {
+        "additionalProperties": false,
+        "description": "Trace an MoM statement to an immutable transcription segment ID.",
+        "properties": {
+          "lang": {
+            "enum": [
+              "ro",
+              "ru",
+              "en",
+              "mixed"
+            ],
+            "title": "Lang",
+            "type": "string"
+          },
+          "quote": {
+            "minLength": 1,
+            "title": "Quote",
+            "type": "string"
+          },
+          "segment": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment"
+          },
+          "segment_id": {
+            "minLength": 1,
+            "title": "Segment Id",
+            "type": "string"
+          },
+          "speaker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker"
+          },
+          "t": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{2}:\\d{2}:\\d{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "T"
+          }
+        },
+        "required": [
+          "quote",
+          "lang",
+          "segment_id"
+        ],
+        "title": "MomEvidence",
+        "type": "object"
+      },
+      "MomFinding": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "$ref": "#/components/schemas/MomEvidence"
+          },
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/MomFlag"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "source_stated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Stated"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "evidence",
+          "flags"
+        ],
+        "title": "MomFinding",
+        "type": "object"
+      },
+      "MomFlag": {
+        "additionalProperties": false,
+        "properties": {
+          "blocking": {
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates"
+          },
+          "reason": {
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "number",
+              "decision_status",
+              "owner",
+              "deadline",
+              "term"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "reason",
+          "blocking"
+        ],
+        "title": "MomFlag",
+        "type": "object"
+      },
+      "MomHeader": {
+        "additionalProperties": false,
+        "properties": {
+          "also_discussed": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "medical",
+                    "patient_case",
+                    "financial",
+                    "administrative",
+                    "executive",
+                    "operational",
+                    "crisis",
+                    "other"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Also Discussed"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "date_source": {
+            "enum": [
+              "recording",
+              "upload"
+            ],
+            "title": "Date Source",
+            "type": "string"
+          },
+          "duration_min": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Min"
+          },
+          "languages": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "propertyNames": {
+                  "enum": [
+                    "ro",
+                    "ru",
+                    "en"
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Languages"
+          },
+          "meeting_type": {
+            "enum": [
+              "medical",
+              "patient_case",
+              "financial",
+              "administrative",
+              "executive",
+              "operational",
+              "crisis",
+              "other"
+            ],
+            "title": "Meeting Type",
+            "type": "string"
+          },
+          "meeting_type_confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Meeting Type Confidence",
+            "type": "string"
+          },
+          "participants_mentioned": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MomParticipant"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participants Mentioned"
+          },
+          "subject": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "meeting_type",
+          "meeting_type_confidence",
+          "date",
+          "date_source"
+        ],
+        "title": "MomHeader",
+        "type": "object"
+      },
+      "MomOpenQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MomEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "raised_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raised By"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "MomOpenQuestion",
+        "type": "object"
+      },
+      "MomParticipant": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "role_stated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Stated"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "MomParticipant",
+        "type": "object"
+      },
+      "MomPatient": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Decision Ids",
+            "type": "array"
+          },
+          "findings": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Findings"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "reference": {
+            "minLength": 1,
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "decision_ids"
+        ],
+        "title": "MomPatient",
+        "type": "object"
+      },
       "MomQuality": {
         "additionalProperties": false,
         "properties": {
@@ -314,14 +954,20 @@
             "type": "string"
           },
           "momConfidence": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Momconfidence",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Momconfidence"
           }
         },
         "required": [
-          "momConfidence",
           "confidenceScale"
         ],
         "title": "MomQuality",
@@ -358,17 +1004,15 @@
         "additionalProperties": false,
         "properties": {
           "document": {
-            "additionalProperties": true,
-            "title": "Document",
-            "type": "object"
+            "$ref": "#/components/schemas/MomDocument"
           },
           "quality": {
             "$ref": "#/components/schemas/MomQuality"
           },
           "schemaVersion": {
-            "const": "mom.v1alpha1",
+            "const": 1,
             "title": "Schemaversion",
-            "type": "string"
+            "type": "integer"
           }
         },
         "required": [
@@ -377,6 +1021,82 @@
           "document"
         ],
         "title": "MomResult",
+        "type": "object"
+      },
+      "MomRisk": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "enum": [
+                  "clinical",
+                  "safety",
+                  "technical",
+                  "regulatory",
+                  "data_quality",
+                  "operational"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MomEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "raised_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raised By"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "MomRisk",
+        "type": "object"
+      },
+      "MomTopic": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "text"
+        ],
+        "title": "MomTopic",
         "type": "object"
       },
       "ProcessingSummary": {
@@ -473,9 +1193,9 @@
             "$ref": "#/components/schemas/ReviewQuality"
           },
           "schemaVersion": {
-            "const": "review-context.v1alpha1",
+            "const": 1,
             "title": "Schemaversion",
-            "type": "string"
+            "type": "integer"
           },
           "sourceRecording": {
             "$ref": "#/components/schemas/ReviewSourceRecording"
@@ -529,10 +1249,17 @@
             "type": "string"
           },
           "momConfidence": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Momconfidence",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Momconfidence"
           },
           "overallConfidence": {
             "anyOf": [
@@ -548,15 +1275,20 @@
             "title": "Overallconfidence"
           },
           "transcriptConfidence": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Transcriptconfidence",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcriptconfidence"
           }
         },
         "required": [
-          "transcriptConfidence",
-          "momConfidence",
           "overallConfidence",
           "confidenceScale"
         ],
@@ -579,6 +1311,18 @@
             "minLength": 1,
             "title": "Originalfilename",
             "type": "string"
+          },
+          "recordedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recordedat"
           },
           "sizeBytes": {
             "minimum": 1.0,
@@ -702,14 +1446,20 @@
             "type": "string"
           },
           "transcriptConfidence": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Transcriptconfidence",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcriptconfidence"
           }
         },
         "required": [
-          "transcriptConfidence",
           "confidenceScale"
         ],
         "title": "TranscriptionQuality",
@@ -760,9 +1510,9 @@
             "$ref": "#/components/schemas/TranscriptionQuality"
           },
           "schemaVersion": {
-            "const": "transcription.v1alpha1",
+            "const": 1,
             "title": "Schemaversion",
-            "type": "string"
+            "type": "integer"
           },
           "speakers": {
             "items": {

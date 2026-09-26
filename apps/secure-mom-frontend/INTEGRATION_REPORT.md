@@ -51,7 +51,7 @@ speaker ID `speaker-1`, language `en`, and confidence `0.94`. Running the live
 payload through `segmentsFromTranscription()` produced the UI projection with
 timestamp `00:00:00` and language label `EN`.
 
-The MoM response had the expected `mom.v1alpha1` envelope. Passing
+The MoM response had the expected schema-version-1 envelope. Passing
 `response.document` to `parseMom()` produced subject "Local pipeline demo
 validation", one decision, and one action. Review context supplied transcript
 confidence `0.91` and MoM confidence `0.86`; these are the values consumed by
@@ -91,7 +91,7 @@ was observed, but this report does not claim visual-layout certification.
 | `UploadScreen` | `createJob` | `POST /api/v1/jobs` | Aligned and live-tested with multipart `audio`. |
 | `RecordingScreen` | `createJob` | `POST /api/v1/jobs` | Transport aligned; browser recording remains outside this smoke run. |
 | `ProcessingScreen` / `Sidebar` | `getJob` | `GET /api/v1/jobs/{job_id}` | Aligned; all four live transitions observed. |
-| Processing transcript preview | `getTranscript` | `GET /api/v1/jobs/{job_id}/transcript` | Aligned to structured `transcription.v1alpha1` JSON. |
+| Processing transcript preview | `getTranscript` | `GET /api/v1/jobs/{job_id}/transcript` | Aligned to structured transcription JSON with `schemaVersion: 1`. |
 | `TranscriptPane` | `getTranscript` + segment mapper | `GET /api/v1/jobs/{job_id}/transcript` | Structured projection live-tested. |
 | `SummaryPane` / review store | `getMom` + `parseMom(result.document)` | `GET /api/v1/jobs/{job_id}/mom` | Envelope unwrapping live-tested; document schema remains provisional. |
 | `AiConfidence` / review details | `getReviewContext` | `GET /api/v1/jobs/{job_id}/review-context` | Confidence and metadata aligned and live-tested. |

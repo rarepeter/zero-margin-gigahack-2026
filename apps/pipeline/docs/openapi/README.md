@@ -6,9 +6,9 @@ below are agreed for the current integration increment.
 - `pipeline.openapi.json` is generated from the FastAPI application and includes
   the structured transcription callback, versioned MoM callback, separate
   transcript/MoM reads, and compact review-context read.
-- `audio-processing.openapi.json` fixes the `transcription.v1alpha1` result
+- `audio-processing.openapi.json` fixes the schema-version-1 transcription result
   structure, including transcript confidence.
-- `text-processing.openapi.json` fixes the `mom.v1alpha1` envelope and MoM
+- `text-processing.openapi.json` fixes the schema-version-1 MoM envelope and MoM
   confidence while leaving the detailed `document` object open.
 
 Health details and service transport choices that still carry discovery markers

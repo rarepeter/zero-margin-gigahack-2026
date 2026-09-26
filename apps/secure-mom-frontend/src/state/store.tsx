@@ -118,7 +118,7 @@ interface Ctx {
   resolve(id: string, value: string): void;
   saveEdits(edits: Edits): void;
   setRecipients(p: Person[]): void;
-  exportMom(patientCase: boolean): Promise<void>;
+  exportMom(): Promise<void>;
   discard(): Promise<void>;
   newMeeting(): void;
   toast(msg: string): void;
@@ -239,16 +239,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast(l.ed_toast);
     },
     setRecipients: (recipients) => dispatch({ type: 'recipients', recipients }),
-    async exportMom(patientCase) {
+    async exportMom() {
       if (!s.jobId || !view) return;
       const reviewed = applyResolutions(view, issues, Object.fromEntries(Object.entries(s.res).filter(([, v]) => v !== EDITED)));
       try {
-        await api.exportMom(s.jobId, reviewed, patientCase ? [] : s.recipients.map((p) => p.email));
+        await api.exportMom(s.jobId, reviewed, s.recipients.map((p) => p.email));
       } catch (e) {
         // Endpoint not implemented yet on the backend → still let the doctor download locally.
         console.warn('exportMom failed', e);
       }
-      dispatch({ type: 'done', outcome: patientCase ? 'download' : 'share', exported: reviewed });
+      dispatch({ type: 'done', outcome: 'share', exported: reviewed });
     },
     async discard() {
       if (s.jobId) await api.discardJob(s.jobId).catch((e) => console.warn('discardJob failed', e));

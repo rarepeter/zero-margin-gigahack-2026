@@ -53,8 +53,8 @@ All server access goes through a single interface, `SecureMomApi`, in `src/api/t
 |---|---|---|---|
 | Upload / record | `createJob` | `POST /api/v1/jobs` (multipart field `audio`) | ✅ |
 | Poll progress (every 2 s) | `getJob` | `GET /api/v1/jobs/{id}` | ✅ |
-| Transcript | `getTranscript` | `GET /api/v1/jobs/{id}/transcript` (`transcription.v1alpha1` JSON) | ✅ |
-| Minutes | `getMom` | `GET /api/v1/jobs/{id}/mom` (`mom.v1alpha1` envelope) | ✅; detailed document shape remains provisional |
+| Transcript | `getTranscript` | `GET /api/v1/jobs/{id}/transcript` (JSON with `schemaVersion: 1`) | ✅ |
+| Minutes | `getMom` | `GET /api/v1/jobs/{id}/mom` (MoM with `schemaVersion: 1`) | ✅; validated review document |
 | Review metadata/confidence | `getReviewContext` | `GET /api/v1/jobs/{id}/review-context` | ✅ |
 | Retry after failure | `retryJob` | `POST /api/v1/jobs/{id}/retry` | ⚠️ **B4** — route is a backend dummy |
 | "Local server: Online" (every 15 s) | `health` | `GET /health` | ✅ liveness only; not full readiness |
@@ -70,7 +70,7 @@ Behaviour while these endpoints are missing:
 - **Export:** the UI calls the endpoint, logs any failure, and still finishes. The doctor can always download the reviewed minutes locally as PDF (print) or JSON.
 - **Discard:** same pattern as export: the call is attempted, failures are logged, and the flow continues.
 - **Confidence:** transcript and MoM confidence come from the backend review context.
-- **Recipients:** only `@medpark.md` addresses are accepted. Clinical cases (`meeting_type: patient_case`) are download-only, with no recipients.
+- **Recipients:** the current local prototype directory accepts only `@medpark.md` addresses. The directory and final delivery policy are deferred backend work; inferred meeting type does not change delivery behaviour.
 
 The backend-generated OpenAPI document is the source of truth. After it changes,
 sync the frontend snapshot and regenerate the types:
@@ -93,7 +93,7 @@ The API returns no progress percentage. The progress bar uses the status as a fl
 
 ### Transcript format
 
-Live and mock modes both consume `transcription.v1alpha1` JSON. The UI maps
+Live and mock modes both consume transcription JSON with `schemaVersion: 1`. The UI maps
 structured segments such as:
 
 ```json
@@ -109,9 +109,10 @@ structured segments such as:
 ```
 
 The mapper preserves IDs, millisecond boundaries, language codes, anonymous
-speaker IDs, text, and confidence. The red-word → transcript jump uses
-`evidence.t` first, then falls back to `evidence.segment` (0-based segment
-index).
+speaker IDs, text, and confidence. Anonymous speakers render as “Participant
+1”, “Participant 2”, and so on. The red-word → transcript jump uses the stable
+`evidence.segment_id`; timestamp and positional fields are only legacy
+fallbacks for old example artifacts.
 
 ### Red words = `flags` in the MoM
 
@@ -135,4 +136,6 @@ src/
 
 - No external AI API, cloud service or external SMTP at runtime. The UI only calls same-origin endpoints.
 - Audio files are never committed to git. Keep `*.m4a`, `*.mp3` and `*.wav` in the root `.gitignore`.
-- Clinical-case minutes are download-only.
+- The current recipient directory, approval/delivery endpoint, and retention
+  policy remain explicitly deferred; the UI must not infer those rules from the
+  meeting type.

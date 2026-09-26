@@ -22,7 +22,7 @@
       "required": [
         "quote",
         "lang",
-        "segment"
+        "segment_id"
       ],
       "properties": {
         "quote": {
@@ -38,10 +38,15 @@
             "mixed"
           ]
         },
+        "segment_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable ID of the transcript segment. This is the authoritative traceability reference."
+        },
         "segment": {
           "type": "integer",
           "minimum": 0,
-          "description": "Index of the transcript segment."
+          "description": "Deprecated display-order fallback for older artifacts. New documents use segment_id."
         },
         "t": {
           "type": [

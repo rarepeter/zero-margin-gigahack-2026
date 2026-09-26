@@ -19,8 +19,10 @@ boundary module.
 - `TODO(discovery)`: choose final runtime roots. The implemented job layout uses
   `transcript/source.json`, `transcript/transcript.txt`, and
   `review/context.json` provisionally.
-- `TODO(discovery, TD-024)`: define the detailed MoM `document` schema. The
-  surrounding `mom.v1alpha1` envelope and confidence field are agreed.
+- `TODO(discovery, TD-028)`: define rich review annotations and a reviewer
+  resolution protocol. The schema-version-1 document schema and stable evidence
+  segment IDs are validated; word spans and candidate-resolution semantics are
+  not yet a backend contract.
 - `TODO(discovery)`: define persistence, atomic replacement, queueing, and
   recovery when those features enter implementation scope.
 

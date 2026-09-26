@@ -17,8 +17,8 @@ export function AiConfidence() {
   const { s, l, left } = useApp();
   const verified = left === 0;
   const quality = s.reviewContext?.quality;
-  const tx = quality ? Math.round(quality.transcriptConfidence * 100) : null;
-  const sm = quality ? Math.round(quality.momConfidence * 100) : null;
+  const tx = quality?.transcriptConfidence == null ? null : Math.round(quality.transcriptConfidence * 100);
+  const sm = quality?.momConfidence == null ? null : Math.round(quality.momConfidence * 100);
   const avg = tx !== null && sm !== null ? Math.round((tx + sm) / 2) : null;
 
   const goFix = () => {
