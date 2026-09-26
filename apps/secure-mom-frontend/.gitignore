@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+.env.local
+*.log
+*.tsbuildinfo
+*.m4a
+*.mp3
+*.wav

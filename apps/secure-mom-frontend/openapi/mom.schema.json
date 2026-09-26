@@ -1,0 +1,480 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "secure-mom/mom.schema.json",
+  "title": "Secure MOM — Minutes of Meeting",
+  "description": "Contract between the local LLM and every renderer (portal, Email 1, Email 2, PDF). null = not stated in the recording; renderers show 'Nestabilit' / 'Nespecificat', never an empty cell.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "header",
+    "summary",
+    "decisions",
+    "actions",
+    "findings",
+    "topics",
+    "risks",
+    "open_questions"
+  ],
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quote",
+        "lang",
+        "segment"
+      ],
+      "properties": {
+        "quote": {
+          "type": "string",
+          "description": "Verbatim transcript text in the language spoken. Validated by fuzzy match against the referenced segment."
+        },
+        "lang": {
+          "type": "string",
+          "enum": [
+            "ro",
+            "ru",
+            "en",
+            "mixed"
+          ]
+        },
+        "segment": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index of the transcript segment."
+        },
+        "t": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{2}:\\d{2}:\\d{2}$",
+          "description": "Timestamp hh:mm:ss, from ASR."
+        },
+        "speaker": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Only if diarization or the transcript names the speaker."
+        }
+      }
+    },
+    "flag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "reason",
+        "blocking"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "number",
+            "decision_status",
+            "owner",
+            "deadline",
+            "term"
+          ],
+          "description": "term also covers unknown regionalisms (reason: 'regionalism necunoscut')."
+        },
+        "reason": {
+          "type": "string",
+          "description": "One sentence, in Romanian, naming what is uncertain."
+        },
+        "blocking": {
+          "type": "boolean",
+          "description": "true for number, decision_status, owner, deadline; false for term."
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Competing readings, e.g. ['4,2%', '4,7%'] or ['cefazolină', 'cefuroximă']."
+        }
+      }
+    },
+    "flags": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/flag"
+      }
+    }
+  },
+  "properties": {
+    "header": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "meeting_type",
+        "meeting_type_confidence",
+        "date",
+        "date_source"
+      ],
+      "properties": {
+        "subject": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "meeting_type": {
+          "type": "string",
+          "enum": [
+            "medical",
+            "patient_case",
+            "financial",
+            "administrative",
+            "executive",
+            "operational",
+            "crisis",
+            "other"
+          ]
+        },
+        "meeting_type_confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "date_source": {
+          "type": "string",
+          "enum": [
+            "recording",
+            "upload"
+          ],
+          "description": "Set by the system, not the LLM. 'upload' forces a deadline flag on every resolved relative deadline."
+        },
+        "duration_min": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Set by the system."
+        },
+        "languages": {
+          "type": "object",
+          "description": "Share of transcript per language. Set by the system from ASR output.",
+          "properties": {
+            "ro": {
+              "type": "number"
+            },
+            "ru": {
+              "type": "number"
+            },
+            "en": {
+              "type": "number"
+            }
+          }
+        },
+        "participants_mentioned": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "As heard. Never inferred."
+              },
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "role_stated": {
+                "type": "boolean",
+                "description": "true only if the role was said aloud."
+              }
+            }
+          }
+        },
+        "also_discussed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "medical",
+              "patient_case",
+              "financial",
+              "administrative",
+              "executive",
+              "operational",
+              "crisis",
+              "other"
+            ]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "description": "≤ 3 sentences, Romanian, ends with the counts."
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text",
+          "status",
+          "evidence",
+          "flags"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^D\\d+$"
+          },
+          "text": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "decided",
+              "proposed",
+              "revoked"
+            ]
+          },
+          "revised_in_meeting": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "$ref": "#/$defs/evidence"
+          },
+          "flags": {
+            "$ref": "#/$defs/flags"
+          }
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text",
+          "owner",
+          "deadline",
+          "evidence",
+          "flags"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^A\\d+$"
+          },
+          "text": {
+            "type": "string",
+            "description": "Verb first."
+          },
+          "decision_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^D\\d+$"
+            }
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name or role exactly as spoken; null if not assigned."
+          },
+          "deadline": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "spoken",
+              "resolved"
+            ],
+            "properties": {
+              "spoken": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Verbatim phrase, original language."
+              },
+              "resolved": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date",
+                "description": "Only when the phrase maps to a date; never for vague phrases."
+              }
+            }
+          },
+          "evidence": {
+            "$ref": "#/$defs/evidence"
+          },
+          "flags": {
+            "$ref": "#/$defs/flags"
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "evidence",
+          "flags"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Numbers, units, doses verbatim. Never rounded."
+          },
+          "source_stated": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "$ref": "#/$defs/evidence"
+          },
+          "flags": {
+            "$ref": "#/$defs/flags"
+          }
+        }
+      }
+    },
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "text"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "description": "≤ 2 sentences; no decisions repeated."
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "clinical",
+              "safety",
+              "technical",
+              "regulatory",
+              "data_quality",
+              "operational"
+            ]
+          },
+          "raised_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "raised_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "patients": {
+      "type": "array",
+      "description": "patient_case meetings only: findings, decisions and plan grouped per patient, as referred to in the recording.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reference",
+          "decision_ids"
+        ],
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "decision_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^D\\d+$"
+            }
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,282 @@
+{
+  "header": {
+    "subject": "Revizuirea profilaxiei antibiotice perioperatorii",
+    "meeting_type": "medical",
+    "meeting_type_confidence": "high",
+    "date": "2026-09-25",
+    "date_source": "recording",
+    "duration_min": 52,
+    "languages": {
+      "ro": 0.71,
+      "ru": 0.21,
+      "en": 0.08
+    },
+    "participants_mentioned": [
+      {
+        "name": "dr. Ciobanu",
+        "role": "conduce ședința",
+        "role_stated": false
+      },
+      {
+        "name": "dr. Rusu",
+        "role": null,
+        "role_stated": false
+      },
+      {
+        "name": "Lungu",
+        "role": "farmacist clinician",
+        "role_stated": true
+      },
+      {
+        "name": "Moraru",
+        "role": "asistentă-șefă",
+        "role_stated": true
+      }
+    ]
+  },
+  "summary": "Consiliul a analizat infecțiile de plagă postoperatorie din T3 și momentul administrării profilaxiei antibiotice. S-a decis trecerea la cefazolină ca primă linie în chirurgia generală electivă, de la 01.10.2026. 3 decizii, 4 acțiuni.",
+  "decisions": [
+    {
+      "id": "D1",
+      "text": "Cefazolină 2 g i.v., cu 30–60 min înainte de incizie, devine prima linie în chirurgia generală electivă, de la 01.10.2026.",
+      "status": "decided",
+      "evidence": {
+        "quote": "Deci, решили — cefazolina două grame, 30–60 minute înainte de incizie, de la întâi octombrie.",
+        "lang": "mixed",
+        "segment": 9,
+        "t": "00:41:12",
+        "speaker": "dr. Ciobanu"
+      },
+      "flags": []
+    },
+    {
+      "id": "D2",
+      "text": "Momentul administrării se înregistrează obligatoriu în lista de verificare chirurgicală, înainte de time-out.",
+      "status": "decided",
+      "evidence": {
+        "quote": "OK, agreed — timpul administrării intră în checklist, înainte de time-out.",
+        "lang": "mixed",
+        "segment": 12,
+        "t": "00:44:30",
+        "speaker": "asistenta-șefă Moraru"
+      },
+      "flags": []
+    },
+    {
+      "id": "D3",
+      "text": "Redozare la intervențiile de peste 4 ore, cu avizul farmaciei.",
+      "status": "proposed",
+      "evidence": {
+        "quote": "Poate facem redosing la patru ore? — Да, но надо проверить с фармацией.",
+        "lang": "mixed",
+        "segment": 14,
+        "t": "00:46:05",
+        "speaker": "dr. Rusu / dr. Ciobanu"
+      },
+      "flags": [
+        {
+          "type": "decision_status",
+          "reason": "A fost decis sau doar propus?",
+          "blocking": true,
+          "candidates": [
+            "decided",
+            "proposed"
+          ]
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "id": "A1",
+      "text": "Actualizarea protocolului de profilaxie",
+      "decision_ids": [
+        "D1"
+      ],
+      "owner": "farmacist clinician Lungu",
+      "deadline": {
+        "spoken": "până vineri viitoare",
+        "resolved": "2026-10-02"
+      },
+      "evidence": {
+        "quote": "Lungu, protocolul actualizat — până vineri viitoare, da?",
+        "lang": "ro",
+        "segment": 10,
+        "t": "00:43:10",
+        "speaker": "dr. Ciobanu"
+      },
+      "flags": [
+        {
+          "type": "deadline",
+          "reason": "„Până vineri viitoare” a fost calculat ca 02.10.2026. Corect?",
+          "blocking": true,
+          "candidates": [
+            "2026-10-02",
+            "2026-10-09"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "A2",
+      "text": "Instruirea asistentelor din blocul operator",
+      "decision_ids": [
+        "D1",
+        "D2"
+      ],
+      "owner": "asistenta-șefă Moraru",
+      "deadline": {
+        "spoken": "до первого октября",
+        "resolved": "2026-09-30"
+      },
+      "evidence": {
+        "quote": "Instruirea asistentelor o fac eu, до первого октября.",
+        "lang": "mixed",
+        "segment": 13,
+        "t": "00:44:52",
+        "speaker": "asistenta-șefă Moraru"
+      },
+      "flags": []
+    },
+    {
+      "id": "A3",
+      "text": "Extragerea datelor pentru auditul T4",
+      "owner": null,
+      "deadline": {
+        "spoken": null,
+        "resolved": null
+      },
+      "evidence": {
+        "quote": "Datele pentru auditul pe T4 trebuie scoase din sistem… cineva de la statistică.",
+        "lang": "ro",
+        "segment": 15,
+        "t": "00:47:03",
+        "speaker": "dr. Ciobanu"
+      },
+      "flags": [
+        {
+          "type": "owner",
+          "reason": "Nimeni nu a fost desemnat. Cine răspunde?",
+          "blocking": true,
+          "candidates": [
+            "dr. Rusu",
+            "asistenta-șefă Moraru"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "A4",
+      "text": "Verificarea redozării cu farmacia",
+      "decision_ids": [
+        "D3"
+      ],
+      "owner": "dr. Rusu",
+      "deadline": {
+        "spoken": null,
+        "resolved": null
+      },
+      "evidence": {
+        "quote": "Да, но надо проверить с фармацией.",
+        "lang": "ru",
+        "segment": 14,
+        "t": "00:46:05",
+        "speaker": "dr. Ciobanu"
+      },
+      "flags": []
+    }
+  ],
+  "findings": [
+    {
+      "text": "Rata infecțiilor de plagă postoperatorie în T3: 4,2%, față de 2,9% în T2.",
+      "evidence": {
+        "quote": "În trimestrul trei avem patru virgulă doi… sau șapte? — Patru virgulă doi la sută, față de doi virgulă nouă.",
+        "lang": "ro",
+        "segment": 3,
+        "t": "00:12:40",
+        "speaker": "dr. Ciobanu"
+      },
+      "flags": [
+        {
+          "type": "number",
+          "reason": "S-a auzit „4,2%” sau „4,7%”?",
+          "blocking": true,
+          "candidates": [
+            "4,2%",
+            "4,7%"
+          ]
+        }
+      ]
+    },
+    {
+      "text": "Antibioticul este administrat după incizie în 37% din cazuri.",
+      "evidence": {
+        "quote": "в тридцати семи процентах случаев antibioticul se face după incizie, nu înainte.",
+        "lang": "mixed",
+        "segment": 4,
+        "t": "00:14:05",
+        "speaker": "asistenta-șefă Moraru"
+      },
+      "flags": []
+    },
+    {
+      "text": "Un caz de urticarie după anestezie, tratat cu 2 ml difenhidramină.",
+      "evidence": {
+        "quote": "I-am făcut două cubice de dimedrol și a trecut până dimineață.",
+        "lang": "mixed",
+        "segment": 7,
+        "t": "00:29:52",
+        "speaker": "asistenta-șefă Moraru"
+      },
+      "flags": [
+        {
+          "type": "number",
+          "reason": "„două cubice de dimedrol” → „2 ml difenhidramină”. Confirmați?",
+          "blocking": true,
+          "candidates": [
+            "2 ml difenhidramină",
+            "două cubice de dimedrol"
+          ]
+        }
+      ]
+    }
+  ],
+  "topics": [
+    {
+      "title": "Momentul administrării",
+      "text": "Profilaxia este administrată prea târziu într-o parte semnificativă a cazurilor."
+    }
+  ],
+  "risks": [
+    {
+      "text": "Pacienții alergici la beta-lactamine: alternativa nu a fost stabilită.",
+      "category": "clinical",
+      "raised_by": "dr. Rusu",
+      "evidence": {
+        "quote": "alergia la beta-lactamine trebuie clarificată separat.",
+        "lang": "ro",
+        "segment": 8,
+        "t": "00:31:10",
+        "speaker": "dr. Rusu"
+      }
+    },
+    {
+      "text": "Pacienții cu suspiciune de TB se trimit la dispensarul de ftiziopneumologie.",
+      "category": "operational",
+      "raised_by": "dr. Rusu",
+      "evidence": {
+        "quote": "Pe cei cu suspiciune îi trimitem la tubdispanser, ca de obicei.",
+        "lang": "mixed",
+        "segment": 16,
+        "t": "00:50:18",
+        "speaker": "dr. Rusu"
+      }
+    }
+  ],
+  "open_questions": [
+    {
+      "text": "Schema alternativă pentru alergia la beta-lactamine.",
+      "raised_by": "dr. Rusu"
+    }
+  ]
+}

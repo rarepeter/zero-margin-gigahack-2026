@@ -1,0 +1,142 @@
+// Example backend used until the Python server is running (VITE_API_MODE=mock).
+// Responses follow the same versioned JSON contracts as the pipeline API.
+import momExample from './examples/mom.example.json';
+import transcriptExample from './examples/transcript.example.json';
+import type { JobStatus, JobStatusResponse, MomResult, ReviewContextResponse, SecureMomApi, TranscriptionResult } from './types';
+
+/** Simulated pipeline timing (ms from upload). Tweak to slow the demo down. */
+const T_TRANSCRIBING = 400;
+const T_GENERATING = 6000;
+const T_READY = 10000;
+
+interface MockJob {
+  created: number;
+  fail: boolean;
+  filename: string;
+  mediaType: string;
+  sizeBytes: number;
+}
+
+const transcriptFixture = transcriptExample as unknown as TranscriptionResult;
+const jobs = new Map<string, MockJob>();
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const fallbackJob = (): MockJob => ({
+  created: Date.now() - T_READY,
+  fail: false,
+  filename: 'Medpark_audio.m4a',
+  mediaType: 'audio/mp4',
+  sizeBytes: 733_645,
+});
+
+function statusAt(elapsed: number, fail: boolean): { status: JobStatus; stage: string } {
+  if (fail && elapsed > T_GENERATING) return { status: 'FAILED', stage: 'mom_generation' };
+  if (elapsed < T_TRANSCRIBING) return { status: 'QUEUED', stage: 'queued' };
+  if (elapsed < T_GENERATING) return { status: 'TRANSCRIBING', stage: 'transcription' };
+  if (elapsed < T_READY) return { status: 'GENERATING_MOM', stage: 'mom_generation' };
+  return { status: 'AWAITING_REVIEW', stage: 'review' };
+}
+
+export const mockApi: SecureMomApi = {
+  async createJob(audio, filename) {
+    await wait(300);
+    const jobId = `job_${Math.random().toString(36).slice(2, 10)}`;
+    // Upload a file whose name contains "fail" to demo the FAILED state.
+    jobs.set(jobId, {
+      created: Date.now(),
+      fail: /fail/i.test(filename),
+      filename,
+      mediaType: audio.type || 'application/octet-stream',
+      sizeBytes: audio.size,
+    });
+    return { jobId, status: 'QUEUED', stage: 'queued', createdAt: new Date().toISOString() };
+  },
+  async getJob(jobId) {
+    const j = jobs.get(jobId) ?? fallbackJob();
+    const elapsed = Date.now() - j.created;
+    const { status, stage } = statusAt(elapsed, j.fail);
+    const res: JobStatusResponse = {
+      jobId,
+      status,
+      stage,
+      createdAt: new Date(j.created).toISOString(),
+      updatedAt: new Date().toISOString(),
+      artifacts: {
+        transcriptAvailable: elapsed >= T_GENERATING,
+        momAvailable: status === 'AWAITING_REVIEW',
+        reviewContextAvailable: status === 'AWAITING_REVIEW',
+      },
+      error: status === 'FAILED' ? { code: 'MOM_GENERATION_FAILED', message: 'Text service did not respond.', retryable: true } : null,
+    };
+    return res;
+  },
+  async getTranscript(jobId) {
+    await wait(150);
+    return { ...structuredClone(transcriptFixture), jobId };
+  },
+  async getMom() {
+    await wait(150);
+    return {
+      schemaVersion: 'mom.v1alpha1',
+      quality: { momConfidence: 0.86, confidenceScale: 'ZERO_TO_ONE' },
+      document: structuredClone(momExample) as unknown as MomResult['document'],
+    };
+  },
+  async getReviewContext(jobId) {
+    await wait(100);
+    const job = jobs.get(jobId) ?? fallbackJob();
+    const createdAt = new Date(job.created).toISOString();
+    const completedAt = new Date(Math.max(job.created + T_READY, Date.now())).toISOString();
+    const response: ReviewContextResponse = {
+      schemaVersion: 'review-context.v1alpha1',
+      jobId,
+      status: 'AWAITING_REVIEW',
+      stage: 'review_ready',
+      createdAt,
+      updatedAt: completedAt,
+      submittedBy: { userId: 'demo-user', displayName: 'Demo User' },
+      sourceRecording: {
+        originalFileName: job.filename,
+        mediaType: job.mediaType,
+        sizeBytes: job.sizeBytes,
+        durationMs: transcriptFixture.audioMetadata.durationMs,
+      },
+      processing: {
+        startedAt: createdAt,
+        completedAt,
+        elapsedMs: Math.max(T_READY, Date.now() - job.created),
+      },
+      meetingMetadata: {
+        durationMs: transcriptFixture.audioMetadata.durationMs,
+        speakerCount: transcriptFixture.speakers.length,
+        namedSpeakerCount: transcriptFixture.speakers.filter((speaker) => speaker.displayName).length,
+        languages: structuredClone(transcriptFixture.languageDetection.languages),
+      },
+      speakers: structuredClone(transcriptFixture.speakers),
+      quality: {
+        transcriptConfidence: transcriptFixture.quality.transcriptConfidence,
+        momConfidence: 0.86,
+        overallConfidence: null,
+        confidenceScale: 'ZERO_TO_ONE',
+      },
+      artifacts: {
+        transcript: { available: true, href: `/api/v1/jobs/${encodeURIComponent(jobId)}/transcript` },
+        mom: { available: true, href: `/api/v1/jobs/${encodeURIComponent(jobId)}/mom` },
+      },
+    };
+    return response;
+  },
+  async retryJob(jobId) {
+    const job = jobs.get(jobId) ?? fallbackJob();
+    jobs.set(jobId, { ...job, created: Date.now() - T_GENERATING, fail: false });
+    return { jobId, status: 'GENERATING_MOM' };
+  },
+  async health() {
+    return true;
+  },
+  async exportMom() {
+    await wait(400);
+  },
+  async discardJob(jobId) {
+    jobs.delete(jobId);
+  },
+};
