@@ -1,26 +1,34 @@
 import { readFile } from 'node:fs/promises';
 import { buildRequest, redact, transcribe, TranscriptionError } from './openrouter';
 import type { Store } from './store';
-import type { ModelId } from '../shared/models';
+import { MODELS } from '../shared/models';
+import { buildLocalRequest, type LocalTranscriber } from './local-whisper';
 import type { ModelResult, Run } from '../shared/schema';
 
 export class Queue {
   private jobs: { run: Run; result: ModelResult }[] = [];
-  private active = 0;
+  private active = { openrouter: 0, local: 0 };
   private stopped = false;
   private abort = new AbortController();
   private pending = new Set<Promise<void>>();
-  constructor(private store: Store, private apiKey: () => string, private fetcher: typeof fetch = fetch) {}
+  constructor(private store: Store, private apiKey: () => string, private fetcher: typeof fetch = fetch, private local?: LocalTranscriber) {}
   enqueue(run: Run) {
     this.jobs.push(...run.results.map(result => ({ run, result })));
     this.drain();
   }
   private drain() {
-    while (!this.stopped && this.active < 2 && this.jobs.length) {
-      const job = this.jobs.shift()!;
-      this.active++;
+    while (!this.stopped) {
+      // A busy hosted queue must never hold up a local job, or vice versa.
+      const index = this.jobs.findIndex(job => {
+        const provider = MODELS.find(model => model.id === job.result.modelId)?.provider ?? 'openrouter';
+        return this.active[provider] < (provider === 'local' ? 1 : 2);
+      });
+      if (index < 0) return;
+      const [job] = this.jobs.splice(index, 1);
+      const provider = MODELS.find(model => model.id === job.result.modelId)?.provider ?? 'openrouter';
+      this.active[provider]++;
       const promise = this.execute(job.run, job.result).finally(() => {
-        this.active--;
+        this.active[provider]--;
         this.pending.delete(promise);
         this.drain();
       });
@@ -34,10 +42,14 @@ export class Queue {
       for (const chunk of chunks) {
         if (this.stopped) return;
         const started = performance.now();
-        const modelId = result.modelId as ModelId;
-        const request = { ...buildRequest(modelId, run.options), input_audio: { format: 'wav', data: '[stored locally; omitted from log]' }, audioChunk: { index: chunk.index, start: chunk.start, end: chunk.end, targetSeconds: run.options.chunkSeconds } };
+        const model = MODELS.find(model => model.id === result.modelId);
+        if (!model) throw new Error(`Unknown model: ${result.modelId}`);
+        const request = { ...(model.provider === 'local' ? buildLocalRequest(run.options) : buildRequest(model.id, run.options)), input_audio: { format: 'wav', data: '[stored locally; omitted from log]' }, audioChunk: { index: chunk.index, start: chunk.start, end: chunk.end, targetSeconds: run.options.chunkSeconds } };
         try {
-          const output = await transcribe(modelId, run.options, await readFile(chunk.path), this.apiKey(), this.fetcher, this.abort.signal);
+          if (model.provider === 'local' && !this.local) throw new Error('Local Whisper is not configured.');
+          const output = model.provider === 'local'
+            ? await this.local!.transcribe(chunk.path, run.options, this.abort.signal)
+            : await transcribe(model.id, run.options, await readFile(chunk.path), this.apiKey(), this.fetcher, this.abort.signal);
           this.store.saveChunk(result.id, { ...output, index: chunk.index, start: chunk.start, end: chunk.end, request, status: 'completed', error: null });
         } catch (error) {
           if (this.stopped) return;
@@ -61,6 +73,7 @@ export class Queue {
   async close() {
     this.stopped = true;
     this.abort.abort();
+    await this.local?.close();
     await Promise.allSettled(this.pending);
     this.store.recover();
   }

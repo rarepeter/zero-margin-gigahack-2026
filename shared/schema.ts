@@ -7,6 +7,7 @@ export const runOptionsSchema = z.object({
   language: z.enum(['auto', 'ro', 'ru', 'en']).default('auto'),
   temperature: z.number().min(0).max(1).default(0),
   timestamps: z.boolean().default(false),
+  contextPrompt: z.string().max(1500).default(''),
   vocabulary: z.string().max(1500).default(''),
   providerOptions: z.record(z.string(), z.record(z.string(), z.json())).default({}),
 }).strict();
@@ -36,7 +37,15 @@ export type ModelResult = {
   latencyMs: number; cost: number | null; error: string | null;
   chunks: ChunkResult[];
 };
+export type TranscriptionOutput = Pick<ChunkResult, 'text' | 'latencyMs' | 'cost' | 'response' | 'generationId'>;
+export type LocalModelStatus = {
+  available: boolean;
+  state: 'unavailable' | 'idle' | 'loading' | 'ready' | 'running' | 'error';
+  device: string | null;
+  error: string | null;
+};
 export type Config = {
+  localWhisper: LocalModelStatus;
   keyConfigured: boolean; ffmpegAvailable: boolean; maxUploadMB: number;
   catalog: { checkedAt: string | null; ids: string[] | null; error: string | null };
 };

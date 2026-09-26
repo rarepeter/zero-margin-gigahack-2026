@@ -5,15 +5,17 @@ import { DEFAULT_CHUNK_SECONDS } from '../shared/chunking';
 import { Store } from './store';
 import { Queue } from './queue';
 import { fetchCatalog, redact } from './openrouter';
+import { LOCAL_WHISPER_MODEL } from '../shared/models';
+import { localUnavailable, type LocalTranscriber } from './local-whisper';
 
 class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
 
-export function createApp(options: { root: string; apiKey: () => string; fetcher?: typeof fetch; loadCatalog?: boolean }) {
+export function createApp(options: { root: string; apiKey: () => string; fetcher?: typeof fetch; loadCatalog?: boolean; localWhisper?: LocalTranscriber }) {
   const store = new Store(resolve(options.root));
   store.recover();
-  const queue = new Queue(store, options.apiKey, options.fetcher);
+  const queue = new Queue(store, options.apiKey, options.fetcher, options.localWhisper);
   let catalog: Config['catalog'] = { checkedAt: null, ids: null, error: null };
-  if (options.loadCatalog !== false) void fetchCatalog().then(value => { catalog = value; });
+  if (options.loadCatalog !== false) void fetchCatalog(options.fetcher).then(value => { catalog = value; });
   let uploading = false;
   const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 
@@ -26,8 +28,8 @@ export function createApp(options: { root: string; apiKey: () => string; fetcher
       if (!['localhost', '127.0.0.1'].includes(originUrl.hostname) || ![url.port, '5173', process.env.PORT || '3001'].includes(originUrl.port)) throw new HttpError(403, 'Request origin is not allowed.');
     }
     const path = url.pathname;
-    if (path === '/api/config' && req.method === 'GET') return json({ keyConfigured: Boolean(options.apiKey()), ffmpegAvailable: Boolean(Bun.which('ffmpeg') && Bun.which('ffprobe')), maxUploadMB: MAX_UPLOAD_BYTES / 1024 / 1024, catalog } satisfies Config);
-    if (path === '/api/catalog/refresh' && req.method === 'POST') { catalog = await fetchCatalog(); return json(catalog); }
+    if (path === '/api/config' && req.method === 'GET') return json({ localWhisper: options.localWhisper?.status() ?? localUnavailable, keyConfigured: Boolean(options.apiKey()), ffmpegAvailable: Boolean(Bun.which('ffmpeg') && Bun.which('ffprobe')), maxUploadMB: MAX_UPLOAD_BYTES / 1024 / 1024, catalog } satisfies Config);
+    if (path === '/api/catalog/refresh' && req.method === 'POST') { catalog = await fetchCatalog(options.fetcher); return json(catalog); }
     if (path === '/api/recordings' && req.method === 'GET') return json(store.recordings());
     if (path === '/api/recordings' && req.method === 'POST') {
       if (!Bun.which('ffmpeg') || !Bun.which('ffprobe')) throw new HttpError(503, 'Install FFmpeg first: brew install ffmpeg');
@@ -55,14 +57,19 @@ export function createApp(options: { root: string; apiKey: () => string; fetcher
     }
     if (path === '/api/runs' && req.method === 'GET') return json(store.runs());
     if (path === '/api/runs' && req.method === 'POST') {
-      if (!options.apiKey()) throw new HttpError(503, 'Add OPENROUTER_API_KEY to .env and restart the server.');
       if (!req.headers.get('content-type')?.includes('application/json')) throw new HttpError(415, 'Send JSON.');
       const parsed = createRunSchema.safeParse(await req.json());
       if (!parsed.success) throw new HttpError(400, parsed.error.issues.map(i => i.message).join('; '));
       const input = parsed.data;
+      const hostedModels = input.models.filter(id => id !== LOCAL_WHISPER_MODEL.id);
+      if (hostedModels.length && !options.apiKey()) throw new HttpError(503, 'Add OPENROUTER_API_KEY to .env and restart the server to use hosted models.');
+      if (input.models.includes(LOCAL_WHISPER_MODEL.id)) {
+        const status = options.localWhisper?.status() ?? localUnavailable;
+        if (!status.available) throw new HttpError(503, status.error || 'Local Whisper is unavailable.');
+      }
       const recording = store.recording(input.audioId);
       if (!recording) throw new HttpError(404, 'Recording not found.');
-      if (catalog.ids && input.models.some(id => !catalog.ids!.includes(id))) throw new HttpError(400, 'A selected model is absent from the current OpenRouter catalog. Refresh the catalog and selection.');
+      if (catalog.ids && hostedModels.some(id => !catalog.ids!.includes(id))) throw new HttpError(400, 'A selected model is absent from the current OpenRouter catalog. Refresh the catalog and selection.');
       const sanitized = createRunSchema.parse(redact(input, options.apiKey()));
       const chunks = sanitized.options.chunkSeconds === DEFAULT_CHUNK_SECONDS
         ? recording.chunks

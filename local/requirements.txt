@@ -1,0 +1,5 @@
+torch==2.14.0
+# 5.0.0 fails on short chunks with KeyError: 'num_frames'.
+transformers==5.1.0
+numpy==2.5.3
+safetensors==0.8.0

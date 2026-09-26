@@ -1,17 +1,19 @@
 import { z } from 'zod';
-import { MODELS, type ModelId } from '../shared/models';
+import { OPENROUTER_MODELS, type OpenRouterModelId } from '../shared/models';
 import type { RunOptions, Config } from '../shared/schema';
+import { buildWhisperPrompt } from '../shared/prompt';
 
 export const OPENROUTER_URL = 'https://openrouter.ai/api/v1/audio/transcriptions';
 
-export function buildRequest(modelId: ModelId, options: RunOptions) {
-  const model = MODELS.find(m => m.id === modelId)!;
+export function buildRequest(modelId: OpenRouterModelId, options: RunOptions) {
+  const model = OPENROUTER_MODELS.find(m => m.id === modelId)!;
   const providerOptions = structuredClone(options.providerOptions);
-  if (model.family === 'whisper' && options.vocabulary.trim()) {
+  const prompt = buildWhisperPrompt(options);
+  if (model.family === 'whisper' && prompt) {
     // OpenRouter documents this exact passthrough. It applies only if Groq
     // serves the request; the STT endpoint cannot pin providers.
     providerOptions.groq = {
-      prompt: `Română, русский, English. ${options.vocabulary.trim()}`,
+      prompt,
       ...providerOptions.groq,
     };
   }
@@ -43,7 +45,7 @@ export class TranscriptionError extends Error {
 }
 
 export async function transcribe(
-  modelId: ModelId, options: RunOptions, audio: Uint8Array, apiKey: string,
+  modelId: OpenRouterModelId, options: RunOptions, audio: Uint8Array, apiKey: string,
   fetcher: typeof fetch = fetch, signal?: AbortSignal,
 ) {
   const started = performance.now();
@@ -71,9 +73,9 @@ export async function transcribe(
   return { text: parsed.data.text, cost: parsed.data.usage?.cost ?? null, response: body, generationId, latencyMs };
 }
 
-export async function fetchCatalog(): Promise<Config['catalog']> {
+export async function fetchCatalog(fetcher: typeof fetch = fetch): Promise<Config['catalog']> {
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=transcription', { signal: AbortSignal.timeout(10000) });
+    const response = await fetcher('https://openrouter.ai/api/v1/models?output_modalities=transcription', { signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error(`Catalog returned ${response.status}.`);
     const data = z.object({ data: z.array(z.object({ id: z.string() })) }).parse(await response.json());
     return { checkedAt: new Date().toISOString(), ids: data.data.map(m => m.id), error: null };

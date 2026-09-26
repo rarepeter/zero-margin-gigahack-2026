@@ -3,10 +3,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../server/app';
+import type { LocalTranscriber } from '../server/local-whisper';
 import { chunkBoundaries } from '../server/audio';
 import { buildRequest, redact } from '../server/openrouter';
 import { runOptionsSchema, type Recording, type Run } from '../shared/schema';
-import { MODELS } from '../shared/models';
+import { LOCAL_WHISPER_MODEL, OPENROUTER_MODELS } from '../shared/models';
+import { HOSPITAL_CONTEXT_PROMPT, buildWhisperPrompt } from '../shared/prompt';
 
 const roots: string[] = [];
 const apps: ReturnType<typeof createApp>[] = [];
@@ -15,7 +17,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
-async function fixture(handler?: (request: Request) => Response | Promise<Response>, key = 'test-secret') {
+async function fixture(handler?: (request: Request) => Response | Promise<Response>, key = 'test-secret', localWhisper?: LocalTranscriber) {
   const root = await mkdtemp(join(tmpdir(), 'speechbench-test-'));
   roots.push(root);
   // Dependency injection keeps all paid requests off the network.
@@ -23,7 +25,7 @@ async function fixture(handler?: (request: Request) => Response | Promise<Respon
     if (!handler) throw new Error('Unexpected upstream request');
     return handler(new Request(input, init));
   }, { preconnect: fetch.preconnect });
-  const app = createApp({ root, apiKey: () => key, fetcher, loadCatalog: false });
+  const app = createApp({ root, apiKey: () => key, fetcher, loadCatalog: false, localWhisper });
   apps.push(app);
   return { app, root };
 }
@@ -48,7 +50,7 @@ async function seed(app: ReturnType<typeof createApp>, root: string, count = 1) 
 
 describe('multilingual request contract', () => {
   test('automatic language and original transcript mode across the open-weight allowlist', () => {
-    for (const model of MODELS) {
+    for (const model of OPENROUTER_MODELS) {
       const body = buildRequest(model.id, runOptionsSchema.parse({}));
       expect(body).not.toHaveProperty('language');
       expect(body.temperature).toBe(0);
@@ -59,9 +61,29 @@ describe('multilingual request contract', () => {
   });
   test('vocabulary uses documented passthrough and does not erase custom settings', () => {
     const body = buildRequest('openai/whisper-large-v3', runOptionsSchema.parse({ vocabulary: 'Chișinău, щас, deadline', timestamps: true, providerOptions: { groq: { custom: 1 } } }));
-    expect(body.provider?.options.groq).toEqual({ prompt: 'Română, русский, English. Chișinău, щас, deadline', custom: 1 });
+    expect(body.provider?.options.groq).toEqual({ prompt: 'Vocabulary: Chișinău, щас, deadline.', custom: 1 });
     expect(body.timestamp_granularities).toEqual(['segment', 'word']);
     expect(buildRequest('qwen/qwen3-asr-1.7b', runOptionsSchema.parse({ vocabulary: 'test' }))).not.toHaveProperty('provider');
+  });
+  test('context and vocabulary reach Whisper through Groq, with explicit overrides preserved', () => {
+    const options = runOptionsSchema.parse({ contextPrompt: HOSPITAL_CONTEXT_PROMPT, vocabulary: '  ECG, ЭКГ  ' });
+    const prompt = `${HOSPITAL_CONTEXT_PROMPT}\n\nVocabulary: ECG, ЭКГ.`;
+    expect(buildWhisperPrompt(options)).toBe(prompt);
+    for (const model of OPENROUTER_MODELS) {
+      const body = buildRequest(model.id, options);
+      expect(body).not.toHaveProperty('prompt');
+      expect(body).not.toHaveProperty('messages');
+      expect(body).not.toHaveProperty('language');
+      if (model.family === 'whisper') expect(body.provider?.options.groq?.prompt).toBe(prompt);
+      else expect(body).not.toHaveProperty('provider');
+    }
+    const override = buildRequest('openai/whisper-large-v3', { ...options, providerOptions: { groq: { prompt: 'Explicit replacement', custom: true } } });
+    expect(override.provider?.options.groq).toEqual({ prompt: 'Explicit replacement', custom: true });
+    expect(buildWhisperPrompt(runOptionsSchema.parse({ contextPrompt: '  ', vocabulary: '\n' }))).toBe('');
+    expect(buildWhisperPrompt(runOptionsSchema.parse({ vocabulary: 'ECG.' }))).toBe('Vocabulary: ECG.');
+    expect(buildRequest('openai/whisper-large-v3', runOptionsSchema.parse({}))).not.toHaveProperty('provider');
+    expect(runOptionsSchema.parse({}).contextPrompt).toBe('');
+    expect(runOptionsSchema.safeParse({ contextPrompt: 'x'.repeat(1501) }).success).toBe(false);
   });
   test('chunking prefers pauses and covers all audio without gaps or overlap', () => {
     expect(chunkBoundaries(120, [43, 94])).toEqual([0, 43, 94, 120]);
@@ -82,7 +104,10 @@ test('custom chunk sizes change the audio sent to every model and persist indepe
     expect(body).not.toHaveProperty('chunkSeconds');
     seen.push({ model: body.model, bytes: Buffer.from(body.input_audio.data, 'base64').length });
     return Response.json({ text: transcript });
-  });
+  }, 'test-secret', localFixture(async path => {
+    seen.push({ model: LOCAL_WHISPER_MODEL.id, bytes: (await Bun.file(path).arrayBuffer()).byteLength });
+    return { text: transcript, latencyMs: 1, cost: null, response: { text: transcript }, generationId: null };
+  }));
   const audioPath = join(root, 'long.m4a');
   const conversion = Bun.spawn(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=68', '-c:a', 'aac', audioPath], { stdout: 'pipe', stderr: 'pipe' });
   expect(await conversion.exited).toBe(0);
@@ -91,7 +116,7 @@ test('custom chunk sizes change the audio sent to every model and persist indepe
   expect(uploaded.status).toBe(201);
   const recording = await uploaded.json() as Recording;
   const originalChunks = app.store.recording(recording.id)!.chunks;
-  const models = ['openai/whisper-large-v3', 'qwen/qwen3-asr-1.7b'];
+  const models = ['openai/whisper-large-v3', 'qwen/qwen3-asr-1.7b', LOCAL_WHISPER_MODEL.id];
   const runs: Run[] = [];
   for (const chunkSeconds of [20, 50]) {
     const created = await app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audioId: recording.id, models, options: { chunkSeconds } }) }));
@@ -182,10 +207,10 @@ test('real M4A upload → all models → full Unicode text persisted across rest
   expect(upload.status).toBe(201);
   const recording = await upload.json() as Recording;
   expect(recording.chunkCount).toBe(1);
-  const created = await app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audioId: recording.id, models: MODELS.map(m => m.id), options: {} }) }));
+  const created = await app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audioId: recording.id, models: OPENROUTER_MODELS.map(m => m.id), options: {} }) }));
   expect(created.status).toBe(201);
   const run = await waitForRun(app, (await created.json() as Run).id);
-  expect(seen.sort()).toEqual(MODELS.map(m => m.id).sort());
+  expect(seen.sort()).toEqual(OPENROUTER_MODELS.map(m => m.id).sort());
   for (const result of run.results) {
     expect(result.status).toBe('completed'); expect(result.transcript).toBe(transcript);
     expect(result.chunks[0].generationId).toBe('gen-test'); expect(result.cost).toBe(0.001);
@@ -196,7 +221,7 @@ test('real M4A upload → all models → full Unicode text persisted across rest
   expect(exported.headers.get('content-disposition')).toContain('attachment');
   await app.close(); apps.splice(apps.indexOf(app), 1);
   const reopened = createApp({ root, apiKey: () => '', loadCatalog: false }); apps.push(reopened);
-  expect(reopened.store.run(run.id)?.results.map(r => r.transcript)).toEqual(MODELS.map(() => transcript));
+  expect(reopened.store.run(run.id)?.results.map(r => r.transcript)).toEqual(OPENROUTER_MODELS.map(() => transcript));
   expect(reopened.store.recordings()[0].name).toBe('sample.m4a');
 }, 20000);
 
@@ -223,7 +248,8 @@ test('rejects closed models, missing keys, and cross-origin spending requests', 
   expect((await app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }))).status).toBe(400);
   expect((await app.fetch(request('/api/runs', { method: 'POST', headers: { Origin: 'https://example.com' }, body }))).status).toBe(403);
   const noKey = await fixture(undefined, '');
-  expect((await noKey.app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }))).status).toBe(503);
+  const hostedBody = JSON.stringify({ audioId, models: ['openai/whisper-large-v3'], options: {} });
+  expect((await noKey.app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: hostedBody }))).status).toBe(503);
   expect(redact({ nested: { api_key: 'oops', message: 'secret-value' } }, 'secret-value')).toEqual({ nested: { api_key: '[redacted]', message: '[redacted]' } });
 });
 
@@ -237,4 +263,100 @@ test('server recovery marks unfinished runs as interrupted and keeps completed c
   const saved = app.store.run(run.id)!;
   expect(saved.results[0].status).toBe('interrupted');
   expect(saved.results[0].transcript).toBe('Păstrează asta.');
+});
+
+function localFixture(transcribe: LocalTranscriber['transcribe']): LocalTranscriber {
+  return {
+    status: () => ({ available: true, state: 'idle', device: null, error: null }),
+    transcribe, close: async () => {},
+  };
+}
+
+test('local-only runs need no API key or catalog entry and persist the same prepared chunks', async () => {
+  const received: { path: string; options: unknown }[] = [];
+  const local = localFixture(async (path, options) => {
+    received.push({ path, options });
+    return { text: 'Mâine. Завтра.', latencyMs: 10, cost: null, generationId: null, response: { text: 'Mâine. Завтра.', runtime: { device: 'mps' } } };
+  });
+  const { app, root } = await fixture(req => {
+    expect(req.url).toContain('/models?output_modalities=transcription');
+    return Response.json({ data: [{ id: OPENROUTER_MODELS[0].id }] });
+  }, '', local);
+  await app.fetch(request('/api/catalog/refresh', { method: 'POST' }));
+  const audioId = await seed(app, root, 2);
+  const options = runOptionsSchema.parse({ language: 'auto', contextPrompt: HOSPITAL_CONTEXT_PROMPT, vocabulary: 'Chișinău', providerOptions: { groq: { prompt: 'cloud only' } } });
+  const created = await app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audioId, models: [LOCAL_WHISPER_MODEL.id], options }) }));
+  expect(created.status).toBe(201);
+  const run = await waitForRun(app, (await created.json() as Run).id);
+  expect(received).toEqual(app.store.runChunks(run.id).map(chunk => ({ path: chunk.path, options })));
+  expect(run.results[0].status).toBe('completed');
+  expect(run.results[0].transcript).toBe('Mâine. Завтра.\n\nMâine. Завтра.');
+  expect(run.results[0].cost).toBeNull();
+  expect(run.options.contextPrompt).toBe(HOSPITAL_CONTEXT_PROMPT);
+  for (const chunk of run.results[0].chunks) expect(chunk.request).toMatchObject({ provider: 'local', language: 'auto', contextPrompt: HOSPITAL_CONTEXT_PROMPT, vocabulary: 'Chișinău', prompt: `${HOSPITAL_CONTEXT_PROMPT}\n\nVocabulary: Chișinău.` });
+  expect(JSON.stringify(run.results[0].chunks[0].request)).not.toContain('cloud only');
+  expect(await (await app.fetch(request(`/api/runs/${run.id}/export`))).json()).toEqual(run);
+  await app.close(); apps.splice(apps.indexOf(app), 1);
+  const reopened = createApp({ root, apiKey: () => '', loadCatalog: false }); apps.push(reopened);
+  expect(reopened.store.run(run.id)).toEqual(run);
+});
+
+test('local transcription starts while both OpenRouter slots are busy and a third hosted job waits', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const started: string[] = [];
+  let localStarted = false;
+  const local = localFixture(async () => {
+    localStarted = true;
+    return { text: 'local result', latencyMs: 1, cost: null, response: { text: 'local result' }, generationId: null };
+  });
+  const { app, root } = await fixture(async req => {
+    const body = await req.json() as { model: string };
+    started.push(body.model);
+    await gate;
+    return Response.json({ text: body.model });
+  }, 'test-secret', local);
+  const audioId = await seed(app, root);
+  const models = [...OPENROUTER_MODELS.slice(0, 3).map(model => model.id), LOCAL_WHISPER_MODEL.id];
+  const created = await app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audioId, models, options: {} }) }));
+  const runId = (await created.json() as Run).id;
+  try {
+    for (let i = 0; i < 100 && (started.length < 2 || !localStarted); i++) await Bun.sleep(10);
+    expect(localStarted).toBe(true);
+    expect(started).toEqual(models.slice(0, 2));
+    expect(app.store.run(runId)!.results.map(result => result.status)).toEqual(['running', 'running', 'queued', 'completed']);
+  } finally { release(); }
+  const run = await waitForRun(app, runId);
+  expect(started).toHaveLength(3);
+  expect(run.results.every(result => result.status === 'completed')).toBe(true);
+});
+
+test('a local failure preserves earlier chunks while hosted models finish', async () => {
+  let calls = 0;
+  const local = localFixture(async () => {
+    if (++calls > 1) throw new Error('local failure test-secret');
+    return { text: 'Prima parte.', latencyMs: 1, cost: null, response: { text: 'Prima parte.' }, generationId: null };
+  });
+  const { app, root } = await fixture(() => Response.json({ text: 'hosted' }), 'test-secret', local);
+  const audioId = await seed(app, root, 3);
+  const created = await app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audioId, models: [LOCAL_WHISPER_MODEL.id, OPENROUTER_MODELS[0].id], options: {} }) }));
+  const run = await waitForRun(app, (await created.json() as Run).id);
+  expect(calls).toBe(2);
+  expect(run.results[0].status).toBe('failed');
+  expect(run.results[0].transcript).toBe('Prima parte.');
+  expect(run.results[0].error).toContain('local failure [redacted]');
+  expect(run.results[1].status).toBe('completed');
+  expect(run.results[1].completedChunks).toBe(3);
+});
+
+test('unconfigured local models and mixed runs without a key fail before creating jobs', async () => {
+  const { app, root } = await fixture();
+  const audioId = await seed(app, root);
+  const body = { audioId, models: [LOCAL_WHISPER_MODEL.id], options: {} };
+  expect((await app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }))).status).toBe(503);
+  expect(app.store.runs()).toHaveLength(0);
+  const noKey = await fixture(undefined, '', localFixture(async () => { throw new Error('Must not run'); }));
+  const mixedBody = { ...body, models: [...body.models, OPENROUTER_MODELS[0].id] };
+  expect((await noKey.app.fetch(request('/api/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mixedBody) }))).status).toBe(503);
+  expect(noKey.app.store.runs()).toHaveLength(0);
 });
