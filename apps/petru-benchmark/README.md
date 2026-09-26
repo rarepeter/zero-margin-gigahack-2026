@@ -60,7 +60,7 @@ Local inference reads the downloaded files offline. No audio goes to an external
 ## Compare recordings
 
 1. Upload an M4A file, or select a saved recording. MP3, WAV, FLAC, OGG, WebM, and AAC also work. The limits are 250 MB and two hours.
-2. Select models. **Core five** selects Whisper large-v3, Whisper Turbo, Parakeet v3, and both Qwen3-ASR sizes. **Select all** also includes the two exploratory Voxtral models and local Whisper when configured.
+2. Select models. **Core five** selects Whisper large-v3, Whisper Turbo, Parakeet v3, and both Qwen3-ASR sizes. **Select all** also includes the exploratory Voxtral and Nemotron models and local Whisper when configured.
 3. Edit **Transcription context** or select **Use hospital preset**. The preset describes hospital speech in Moldova with Romanian, Russian, and occasional English. Keep **Automatic** language detection. Add a few exact spellings in **Names & vocabulary** if needed. The UI identifies models that receive no context hint.
 4. Set **Target chunk size (seconds)** from 10 to 600. The default is 45. Splits prefer pauses and may extend up to 10 seconds beyond the target; the UI shows the maximum. Every model in a comparison receives the same chunks.
 5. Select **Run models**. Up to two hosted models and one local model run concurrently in separate queues. Hosted requests use OpenRouter credits. Local transcription has no API charge.

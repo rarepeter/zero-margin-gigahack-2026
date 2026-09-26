@@ -15,9 +15,10 @@ The server accepts an explicit allowlist from `shared/models.ts`. It rejects oth
 | Qwen3-ASR 0.6B | [Qwen](https://huggingface.co/Qwen/Qwen3-ASR-0.6B) | Apache-2.0 | Romanian, Russian, English |
 | Voxtral Mini 3B 2507 | [Mistral](https://huggingface.co/mistralai/Voxtral-Mini-3B-2507) | Apache-2.0 | Exploratory; Romanian and Russian are absent from its supported-language list |
 | Voxtral Small 24B 2507 | [Mistral](https://huggingface.co/mistralai/Voxtral-Small-24B-2507) | Apache-2.0 | Exploratory; Romanian and Russian are absent from its supported-language list |
+| Nemotron 3.5 ASR Streaming 0.6B | [NVIDIA](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) | OpenMDW-1.1 | Exploratory; Russian and English are transcription-ready, Romanian is in the lower broad-coverage tier |
 | Moldovan Romanian Whisper, local | [FraPiz](https://huggingface.co/FraPiz/whisper-large-v3-turbo-moldovan-romanian) | Apache-2.0 | Fine-tuned on Moldovan Romanian educational speech. Mixed-language accuracy needs evaluation. |
 
-The sources were checked on 2026-09-25. An open-weight license does not guarantee that a hosted service exposes every model feature. VibeVoice-ASR and Canary-1B-v2 are shown as unavailable because their exact models were absent from OpenRouter. Other catalog entries are excluded until their downloadable weights and license are verified. `whisper-1` is excluded because the benchmark uses explicit large-v3 variants.
+The sources were checked on 2026-09-25, and Nemotron on 2026-09-26. OpenRouter lists Nemotron's weights as `nvidia/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b`, which does not resolve; the public checkpoint is `nvidia/nemotron-3.5-asr-streaming-0.6b`. An open-weight license does not guarantee that a hosted service exposes every model feature. VibeVoice-ASR and Canary-1B-v2 are shown as unavailable because their exact models were absent from OpenRouter. Other catalog entries are excluded until their downloadable weights and license are verified. `whisper-1` is excluded because the benchmark uses explicit large-v3 variants.
 
 ## Mixed-language settings
 
@@ -25,7 +26,7 @@ The default hosted request omits `language`. Local inference clears the checkpoi
 
 No setting guarantees accurate Moldovan regionalisms. Dialect words, code switches, names, numbers, negations, and English terminology need manual review against the audio. The defaults are a reproducible starting point, not a proven optimum for a recording that has not been evaluated.
 
-Whisper context and vocabulary hints use `provider.options.groq.prompt`. The app joins the context and vocabulary with a blank line, omitting empty fields. Vocabulary gets a `Vocabulary:` prefix and a final period if it lacks sentence-ending punctuation. This avoids leaving an unfinished term list in the prompt. [Groq documents context and spelling hints](https://console.groq.com/docs/speech-to-text). The app sends no invented vocabulary and no unverified Qwen, Parakeet, or Voxtral hint parameters. Advanced JSON options can add documented provider-specific settings. An explicit Groq prompt overrides the generated prompt, and the UI shows that override.
+Whisper context and vocabulary hints use `provider.options.groq.prompt`. The app joins the context and vocabulary with a blank line, omitting empty fields. Vocabulary gets a `Vocabulary:` prefix and a final period if it lacks sentence-ending punctuation. This avoids leaving an unfinished term list in the prompt. [Groq documents context and spelling hints](https://console.groq.com/docs/speech-to-text). The app sends no invented vocabulary and no unverified Qwen, Parakeet, Voxtral, or Nemotron hint parameters. Advanced JSON options can add documented provider-specific settings. An explicit Groq prompt overrides the generated prompt, and the UI shows that override.
 
 OpenRouter applies options only to the hosting provider it selects. Its transcription endpoint does not honor per-request provider pinning through `only` or `order`. Some integrations silently drop unsupported options. The UI records requested settings, not a claim that every upstream provider honored them. [OpenRouter documents these limits](https://openrouter.ai/docs/guides/overview/multimodal/stt).
 
@@ -47,7 +48,7 @@ Research checked on 2026-09-26 informed these choices:
 
 The hint accompanies every prepared audio chunk. For local chunks longer than 30 seconds, Transformers applies the prompt to the first internal segment by default. Language detection stays automatic unless the user changes it. The UI flags a forced language when context is present.
 
-Only local Whisper and Groq-hosted Whisper have verified prompt wiring here. OpenRouter chooses the hosted route, so a saved Groq prompt does not prove that Groq served the request. Qwen, Parakeet, and Voxtral run without the context field through this integration. This is an integration limit, not a claim about all deployments of those models. Compare prompted and unprompted runs against a human reference to measure whether the hint helps.
+Only local Whisper and Groq-hosted Whisper have verified prompt wiring here. OpenRouter chooses the hosted route, so a saved Groq prompt does not prove that Groq served the request. Qwen, Parakeet, Voxtral, and Nemotron run without the context field through this integration. This is an integration limit, not a claim about all deployments of those models. Compare prompted and unprompted runs against a human reference to measure whether the hint helps.
 
 ## Audio preparation
 

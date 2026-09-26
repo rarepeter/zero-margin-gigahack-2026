@@ -1,5 +1,5 @@
 // Explicit allowlist: a catalog listing alone does not establish open weights.
-// Sources and licenses were checked on 2026-09-25. Availability is checked live.
+// Sources and licenses were checked on 2026-09-25 (Nemotron on 2026-09-26). Availability is checked live.
 const hostedModels = [
   { id: 'openai/whisper-large-v3', name: 'Whisper large-v3', maker: 'OpenAI', size: '1.55B', license: 'Apache-2.0', weights: 'https://huggingface.co/openai/whisper-large-v3', primary: true, family: 'whisper', note: 'Accuracy baseline. Supports Romanian, Russian, and English.' },
   { id: 'openai/whisper-large-v3-turbo', name: 'Whisper large-v3 Turbo', maker: 'OpenAI', size: '809M', license: 'MIT', weights: 'https://huggingface.co/openai/whisper-large-v3-turbo', primary: true, family: 'whisper', note: 'Faster Whisper variant. Compare missed words and language switches.' },
@@ -8,6 +8,7 @@ const hostedModels = [
   { id: 'qwen/qwen3-asr-0.6b', name: 'Qwen3-ASR 0.6B', maker: 'Qwen', size: '600M', license: 'Apache-2.0', weights: 'https://huggingface.co/Qwen/Qwen3-ASR-0.6B', primary: true, family: 'qwen', note: 'Compact alternative. Compare against the 1.7B model on the same recording.' },
   { id: 'mistralai/voxtral-mini-3b-2507', name: 'Voxtral Mini 3B', maker: 'Mistral', size: '3B', license: 'Apache-2.0', weights: 'https://huggingface.co/mistralai/Voxtral-Mini-3B-2507', primary: false, family: 'voxtral', note: 'Exploratory. The model card does not list Romanian or Russian among supported languages.' },
   { id: 'mistralai/voxtral-small-24b-2507-stt', name: 'Voxtral Small 24B', maker: 'Mistral', size: '24B', license: 'Apache-2.0', weights: 'https://huggingface.co/mistralai/Voxtral-Small-24B-2507', primary: false, family: 'voxtral', note: 'Exploratory, larger model. Romanian and Russian are not listed in its supported languages.' },
+  { id: 'nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b', name: 'Nemotron 3.5 ASR', maker: 'NVIDIA', size: '600M', license: 'OpenMDW-1.1', weights: 'https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b', primary: false, family: 'nemotron', note: 'Exploratory streaming model. Russian is transcription-ready; Romanian is broad-coverage tier.' },
 ] as const;
 
 export const OPENROUTER_MODELS = hostedModels.map(model => ({ ...model, provider: 'openrouter' as const }));
