@@ -42,7 +42,8 @@ snake_case field naming remains the current portal contract.
 | Server indicator | `health` | `GET /health` | Route aligns, but backend health is currently a dummy liveness response and does not imply worker/model readiness. |
 | Failure screen | `retryJob` | `POST /api/v1/jobs/{job_id}/retry` | Route exists, but backend behavior is a dummy and does not actually recover a job. |
 | Recipient picker | Static `directory.ts` | No directory endpoint | Frontend-only prototype behavior. |
-| Export/share | `exportMom` | No endpoint | Unsupported by the pipeline contract. Local browser download exists separately. |
+| Approve without recipients | `approveMom` | `POST /api/v1/jobs/{job_id}/approve` | Persists the final edited MoM and returns the approved document; no delivery call. |
+| Reload approved MoM | `getApprovedMom` | `GET /api/v1/jobs/{job_id}/approved-mom` | Reads the persisted approved document. |
 | Discard/delete | `discardJob` | No endpoint | Unsupported and conflicts with the pipeline's accepted no-deletion decision. |
 
 ## Resolution and deferral register
@@ -75,14 +76,12 @@ success response and does not transition the failed job.
 No implementation change was made. The route remains a provisional backend
 dummy.
 
-### B5 — Export, approval, and local delivery — deferred, unchanged
+### B5 — Approval implemented; local delivery deferred
 
-The UI posts to an endpoint absent from OpenAPI, suppresses failures, and can
-still show that the minutes were shared. The approval and local-delivery API
-contracts are not implemented yet.
-
-No implementation change was made. The absent backend capability remains
-explicitly not implemented.
+The UI posts the edited document to the approval endpoint and shows completion
+only after success. An empty recipient list produces no email. The pipeline
+persists the approved document and exposes a read endpoint. The current PDF
+button still uses browser print. Recipient delivery remains future work.
 
 ### B6 — Discard and purge claims — open question, untouched
 

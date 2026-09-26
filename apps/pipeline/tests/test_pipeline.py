@@ -931,6 +931,44 @@ def test_mom_callback_persists_json_and_advances_to_review(
     assert conflict.json()["error"]["code"] == "MOM_CONFLICT"
 
 
+def test_approval_persists_edited_mom_without_delivery(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client, job_id, audio_job_id, transcription_document(job_id)
+    ).status_code == 202
+    assert process_one(
+        store, MockAudioService(), logging.getLogger("test.approval"), RecordingTextService()
+    )
+    draft = mom_document()
+    assert push_mom(client, job_id, "text-job-1", draft).status_code == 202
+
+    processing = client.get(f"/api/v1/jobs/{job_id}/review-context").json()["processing"]
+    assert processing["audioStageMs"] >= 0
+    assert processing["momStageMs"] >= 0
+    assert processing["audioStageMs"] + processing["momStageMs"] <= processing["elapsedMs"]
+
+    document = json.loads(draft)["document"]
+    document["summary"] = "Hotărârea aprobată — решение подтверждено."
+    request = {"schemaVersion": 1, "document": document, "recipients": []}
+    approved = client.post(f"/api/v1/jobs/{job_id}/approve", json=request)
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["document"]["summary"] == document["summary"]
+    assert client.get(f"/api/v1/jobs/{job_id}").json()["status"] == "COMPLETED"
+    assert client.get(f"/api/v1/jobs/{job_id}/approved-mom").json() == approved.json()
+    assert client.get(f"/api/v1/jobs/{job_id}/mom").json() == json.loads(draft)
+    assert (store.job_directory(job_id) / "mom/approved.json").is_file()
+    assert client.post(f"/api/v1/jobs/{job_id}/approve", json=request).json() == approved.json()
+
+    changed = deepcopy(request)
+    changed["document"]["summary"] = "Different approval"
+    assert client.post(f"/api/v1/jobs/{job_id}/approve", json=changed).status_code == 409
+    assert client.post(f"/api/v1/jobs/{job_id}/approve", json={**request, "recipients": ["staff@medpark.md"]}).status_code == 409
+
+
 def test_review_context_preserves_missing_model_confidence(
     client: TestClient,
     store: JobStore,

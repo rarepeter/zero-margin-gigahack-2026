@@ -29,6 +29,7 @@ class JobStatus(StrEnum):
     TRANSCRIBING = "TRANSCRIBING"
     GENERATING_MOM = "GENERATING_MOM"
     AWAITING_REVIEW = "AWAITING_REVIEW"
+    COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
 
@@ -80,6 +81,7 @@ class JobArtifacts(PipelineModel):
         default=None,
         alias="reviewContext",
     )
+    approved_mom: ArtifactDescriptor | None = Field(default=None, alias="approvedMom")
 
 
 class JobError(PipelineModel):
@@ -104,6 +106,8 @@ class JobState(PipelineModel):
         alias="sourceRecording",
     )
     error: JobError | None = None
+    audio_stage_ms: int | None = Field(default=None, alias="audioStageMs", ge=0)
+    mom_stage_ms: int | None = Field(default=None, alias="momStageMs", ge=0)
 
 
 class CreateJobResponse(PipelineModel):
@@ -393,10 +397,25 @@ class MomResult(ContractModel):
     document: MomDocument
 
 
+class ApprovalRequest(ContractModel):
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    document: MomDocument
+    recipients: list[str]
+
+
+class ApprovedMom(ContractModel):
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    job_id: str = Field(alias="jobId")
+    approved_at: datetime = Field(alias="approvedAt")
+    document: MomDocument
+
+
 class ProcessingSummary(PipelineModel):
     started_at: datetime = Field(alias="startedAt")
     completed_at: datetime = Field(alias="completedAt")
     elapsed_ms: int = Field(alias="elapsedMs", ge=0)
+    audio_stage_ms: int | None = Field(default=None, alias="audioStageMs", ge=0)
+    mom_stage_ms: int | None = Field(default=None, alias="momStageMs", ge=0)
 
 
 class ReviewSourceRecording(SourceRecording):

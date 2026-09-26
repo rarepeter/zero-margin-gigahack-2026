@@ -72,6 +72,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/jobs/{job_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Persist an approved MoM without email delivery */
+        post: operations["approve_mom_api_v1_jobs__job_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}/approved-mom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the persisted approved MoM */
+        get: operations["get_approved_mom_api_v1_jobs__job_id__approved_mom_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs/{job_id}/mom": {
         parameters: {
             query?: never;
@@ -178,6 +212,33 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ApprovalRequest */
+        ApprovalRequest: {
+            document: components["schemas"]["MomDocument"];
+            /** Recipients */
+            recipients: string[];
+            /**
+             * Schemaversion
+             * @constant
+             */
+            schemaVersion: 1;
+        };
+        /** ApprovedMom */
+        ApprovedMom: {
+            /**
+             * Approvedat
+             * Format: date-time
+             */
+            approvedAt: string;
+            document: components["schemas"]["MomDocument"];
+            /** Jobid */
+            jobId: string;
+            /**
+             * Schemaversion
+             * @constant
+             */
+            schemaVersion: 1;
+        };
         /** ArtifactAvailability */
         ArtifactAvailability: {
             /** Momavailable */
@@ -260,7 +321,7 @@ export interface components {
          * JobStatus
          * @enum {string}
          */
-        JobStatus: "QUEUED" | "TRANSCRIBING" | "GENERATING_MOM" | "AWAITING_REVIEW" | "FAILED";
+        JobStatus: "QUEUED" | "TRANSCRIBING" | "GENERATING_MOM" | "AWAITING_REVIEW" | "COMPLETED" | "FAILED";
         /** JobStatusResponse */
         JobStatusResponse: {
             artifacts: components["schemas"]["ArtifactAvailability"];
@@ -516,6 +577,8 @@ export interface components {
         };
         /** ProcessingSummary */
         ProcessingSummary: {
+            /** Audiostagems */
+            audioStageMs?: number | null;
             /**
              * Completedat
              * Format: date-time
@@ -523,6 +586,8 @@ export interface components {
             completedAt: string;
             /** Elapsedms */
             elapsedMs: number;
+            /** Momstagems */
+            momStageMs?: number | null;
             /**
              * Startedat
              * Format: date-time
@@ -986,6 +1051,126 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    approve_mom_api_v1_jobs__job_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovedMom"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_approved_mom_api_v1_jobs__job_id__approved_mom_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovedMom"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

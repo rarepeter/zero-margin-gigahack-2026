@@ -156,6 +156,25 @@ the audio service from container metadata, is exposed separately from the job
 upload time; filesystem creation time is never treated as the meeting date.
 Before the context exists, return `409 ARTIFACT_NOT_READY`.
 
+The `processing` object also exposes `audioStageMs` and `momStageMs` when
+available. They measure elapsed time from each local model submission to its
+validated callback, including service and callback overhead. Their sum is
+distinct from the existing job-creation-to-review `elapsedMs`.
+
+### `POST /api/v1/jobs/{jobId}/approve`
+
+Accept `{ "schemaVersion": 1, "document": <edited MoM>, "recipients": [] }`
+while the job is `AWAITING_REVIEW`. Validate the document and its evidence,
+persist `mom/approved.json`, and set the job to `COMPLETED`. Return the approved
+document, job ID, and approval timestamp. Identical retries return the same
+approval; a different document conflicts. This increment rejects nonempty
+recipient lists and performs no email delivery.
+
+### `GET /api/v1/jobs/{jobId}/approved-mom`
+
+Return the persisted approved document after approval. Before approval, return
+`409 APPROVAL_NOT_READY`. The draft MoM endpoint remains separate.
+
 ### `POST /api/v1/jobs/{jobId}/retry`
 
 Provisional manual recovery operation. Queue the job from its last valid

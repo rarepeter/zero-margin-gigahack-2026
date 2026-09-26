@@ -24,6 +24,10 @@ class ApiRoutes:
     review_context: str = os.getenv(
         "PIPELINE_REVIEW_CONTEXT_ROUTE", "/jobs/{job_id}/review-context"
     )
+    approve: str = os.getenv("PIPELINE_APPROVE_ROUTE", "/jobs/{job_id}/approve")
+    approved_mom: str = os.getenv(
+        "PIPELINE_APPROVED_MOM_ROUTE", "/jobs/{job_id}/approved-mom"
+    )
     retry: str = os.getenv("PIPELINE_RETRY_ROUTE", "/jobs/{job_id}/retry")
     transcription_result: str = os.getenv(
         "PIPELINE_TRANSCRIPTION_RESULT_ROUTE",

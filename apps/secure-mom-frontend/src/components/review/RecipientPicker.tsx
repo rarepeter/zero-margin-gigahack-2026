@@ -31,7 +31,7 @@ export function RecipientPicker() {
   const mailOk = isMail && INTERNAL.test(needle) && !have.has(needle);
 
   const add = (p: Person) => { setRecipients([...list, p]); setQ(''); input.current?.focus(); };
-  const remove = (i: number) => { if (n > 1) setRecipients(list.filter((_, k) => k !== i)); };
+  const remove = (i: number) => setRecipients(list.filter((_, k) => k !== i));
   const first = () => (matches[0] ? add(matches[0]) : mailOk && add({ name: needle.split('@')[0], email: needle }));
 
   return (
@@ -49,7 +49,7 @@ export function RecipientPicker() {
             {list.map((p, i) => (
               <span key={p.email} className="rchip" title={p.email}>
                 <span className="av xs">{initials(p.name)}</span>{p.name}
-                <button type="button" aria-label={`× ${p.name}`} onClick={() => remove(i)} disabled={n <= 1}>×</button>
+                <button type="button" aria-label={`× ${p.name}`} onClick={() => remove(i)}>×</button>
               </span>
             ))}
           </div>

@@ -58,7 +58,8 @@ All server access goes through a single interface, `SecureMomApi`, in `src/api/t
 | Review metadata/confidence | `getReviewContext` | `GET /api/v1/jobs/{id}/review-context` | ✅ |
 | Retry after failure | `retryJob` | `POST /api/v1/jobs/{id}/retry` | ⚠️ **B4** — route is a backend dummy |
 | "Local server: Online" (every 15 s) | `health` | `GET /health` | ✅ liveness only; not full readiness |
-| Export (after review) | `exportMom` | No pipeline endpoint | ❌ **B5** |
+| Approve (after review, no recipients) | `approveMom` | `POST /api/v1/jobs/{id}/approve` | ✅ |
+| Approved MoM | `getApprovedMom` | `GET /api/v1/jobs/{id}/approved-mom` | ✅ |
 | Discard | `discardJob` | No pipeline endpoint | ❌ **B6** |
 | Recipient directory | (local stub) | `src/data/directory.ts` → e.g. `GET /api/v1/directory?q=` | ❌ **TODO** |
 
@@ -67,7 +68,7 @@ numbered blocker queue. Blockers are intentionally being handled incrementally.
 
 Behaviour while these endpoints are missing:
 
-- **Export:** the UI calls the endpoint, logs any failure, and still finishes. The doctor can always download the reviewed minutes locally as PDF (print) or JSON.
+- **Approval:** the UI submits the edited MoM with an empty recipient list and enters the completion screen only after the pipeline persists it. No email is sent. The existing PDF button still uses browser print; direct PDF generation is deferred.
 - **Discard:** same pattern as export: the call is attempted, failures are logged, and the flow continues.
 - **Confidence:** transcript and MoM confidence come from the backend review context.
 - **Recipients:** the current local prototype directory accepts only `@medpark.md` addresses. The directory and final delivery policy are deferred backend work; inferred meeting type does not change delivery behaviour.
@@ -87,6 +88,7 @@ npm run sync:api   # pipeline OpenAPI → frontend snapshot → schema.d.ts
 | `TRANSCRIBING` | Transcription RO · RU · EN |
 | `GENERATING_MOM` | Generating the minutes |
 | `AWAITING_REVIEW` | Ready for review, then the Review screen opens |
+| `COMPLETED` | Approved MoM saved; completion screen can be restored |
 | `FAILED` | Failed screen (Retry only if `error.retryable`) |
 
 The API returns no progress percentage. The progress bar uses the status as a floor and creeps slowly within each phase.
@@ -136,6 +138,6 @@ src/
 
 - No external AI API, cloud service or external SMTP at runtime. The UI only calls same-origin endpoints.
 - Audio files are never committed to git. Keep `*.m4a`, `*.mp3` and `*.wav` in the root `.gitignore`.
-- The current recipient directory, approval/delivery endpoint, and retention
-  policy remain explicitly deferred; the UI must not infer those rules from the
-  meeting type.
+- Approval without recipients is implemented. The recipient directory, email
+  delivery, and retention policy remain deferred; the UI must not infer those
+  rules from the meeting type.

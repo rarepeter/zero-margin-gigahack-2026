@@ -3,11 +3,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import { api, API_MODE, ApiError, type JobStatus, type JobStatusResponse, type ReviewContextResponse } from '../api';
 import { applyResolutions, blockingLeft, collectIssues, parseMom, type Issue, type Mom, type Resolutions } from '../domain/mom';
 import { segmentsFromTranscription, type Segment } from '../domain/transcript';
-import { defaultRecipients, type Person } from '../data/directory';
+import { type Person } from '../data/directory';
 import { DICT, type Dict, type LangCode } from '../i18n';
 
 export type Screen = 'upload' | 'recording' | 'processing' | 'failed' | 'review' | 'done';
-export type Outcome = 'share' | 'download' | 'discard';
+export type Outcome = 'download' | 'discard';
 /** Text edits made in Edit mode, keyed by path, e.g. `summary`, `decisions.0.text`. */
 export type Edits = Record<string, string>;
 
@@ -28,18 +28,19 @@ export interface State {
   reviewContext: ReviewContextResponse | null;
   res: Resolutions;
   edits: Edits;
+  reviewEditing: boolean;
   recipients: Person[];
-  reviewStart: number | null;
-  reviewSecs: number;
+  portalSecs: number;
+  portalOpenedAt: number;
   outcome: Outcome | null;
   exported: Mom | null;
   toast: string | null;
 }
 
-const initial = (lang: LangCode): State => ({
+const initial = (lang: LangCode, openedAt = Date.now()): State => ({
   lang, screen: 'upload', serverOnline: null, jobId: null, fileName: null, job: null, seen: {}, uploadedAt: null, readyAt: null,
-  error: null, segments: [], mom: null, reviewContext: null, res: {}, edits: {}, recipients: [], reviewStart: null, reviewSecs: 0,
-  outcome: null, exported: null, toast: null,
+  error: null, segments: [], mom: null, reviewContext: null, res: {}, edits: {}, reviewEditing: false, recipients: [], portalSecs: 0,
+  portalOpenedAt: openedAt, outcome: null, exported: null, toast: null,
 });
 
 type Act =
@@ -53,8 +54,10 @@ type Act =
   | { type: 'failed'; error: string }
   | { type: 'resolve'; id: string; value: string }
   | { type: 'edits'; edits: Edits; autoResolve: string[] }
+  | { type: 'reviewEditing'; editing: boolean }
   | { type: 'recipients'; recipients: Person[] }
-  | { type: 'done'; outcome: Outcome; exported: Mom | null }
+  | { type: 'done'; outcome: Outcome; exported: Mom | null; clickedAt?: number }
+  | { type: 'restored'; jobId: string; exported: Mom; reviewContext: ReviewContextResponse | null; elapsedSecs: number }
   | { type: 'toast'; msg: string | null }
   | { type: 'reset' };
 
@@ -63,12 +66,11 @@ function reducer(s: State, a: Act): State {
     case 'lang': return { ...s, lang: a.lang };
     case 'screen': return { ...s, screen: a.screen };
     case 'server': return { ...s, serverOnline: a.online };
-    case 'uploaded': return { ...initial(s.lang), serverOnline: s.serverOnline, screen: 'processing', jobId: a.jobId, fileName: a.fileName, uploadedAt: Date.now(), seen: { QUEUED: Date.now() } };
+    case 'uploaded': return { ...initial(s.lang, s.portalOpenedAt), serverOnline: s.serverOnline, screen: 'processing', jobId: a.jobId, fileName: a.fileName, uploadedAt: Date.now(), seen: { QUEUED: Date.now() } };
     case 'job': return { ...s, job: a.job, seen: s.seen[a.job.status] ? s.seen : { ...s.seen, [a.job.status]: Date.now() } };
     case 'segments': return { ...s, segments: a.segments };
     case 'ready': {
-      const names = a.mom.header.participants_mentioned?.map((p) => p.name) ?? [];
-      return { ...s, screen: 'review', mom: a.mom, segments: a.segments, reviewContext: a.reviewContext, readyAt: Date.now(), reviewStart: Date.now(), res: {}, edits: {}, recipients: defaultRecipients(names) };
+      return { ...s, screen: 'review', mom: a.mom, segments: a.segments, reviewContext: a.reviewContext, readyAt: Date.now(), res: {}, edits: {}, recipients: [] };
     }
     case 'failed': return { ...s, screen: 'failed', error: a.error };
     case 'resolve': return { ...s, res: { ...s.res, [a.id]: a.value } };
@@ -77,10 +79,12 @@ function reducer(s: State, a: Act): State {
       a.autoResolve.forEach((id) => { if (!(id in res)) res[id] = EDITED; });
       return { ...s, edits: a.edits, res };
     }
+    case 'reviewEditing': return { ...s, reviewEditing: a.editing };
     case 'recipients': return { ...s, recipients: a.recipients };
-    case 'done': return { ...s, screen: 'done', outcome: a.outcome, exported: a.exported, reviewSecs: s.reviewStart ? Math.round((Date.now() - s.reviewStart) / 1000) : 0 };
+    case 'done': return { ...s, screen: 'done', outcome: a.outcome, exported: a.exported, portalSecs: a.clickedAt ? Math.max(0, Math.round((a.clickedAt - s.portalOpenedAt) / 1000)) : 0 };
+    case 'restored': return { ...s, screen: 'done', jobId: a.jobId, outcome: 'download', exported: a.exported, reviewContext: a.reviewContext, portalSecs: a.elapsedSecs };
     case 'toast': return { ...s, toast: a.msg };
-    case 'reset': return { ...initial(s.lang), serverOnline: s.serverOnline };
+    case 'reset': return { ...initial(s.lang, Date.now()), serverOnline: s.serverOnline };
   }
 }
 
@@ -117,6 +121,7 @@ interface Ctx {
   retry(): Promise<void>;
   resolve(id: string, value: string): void;
   saveEdits(edits: Edits): void;
+  setReviewEditing(editing: boolean): void;
   setRecipients(p: Person[]): void;
   exportMom(): Promise<void>;
   discard(): Promise<void>;
@@ -154,10 +159,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Dev shortcut (mock mode only): ?demo=review opens the review screen with the example data.
   useEffect(() => {
-    if (API_MODE === 'mock' && new URLSearchParams(location.search).get('demo') === 'review') {
+    if (API_MODE === 'mock' && new URLSearchParams(location.search).get('demo') === 'review' && !new URLSearchParams(location.search).has('approved')) {
       dispatch({ type: 'uploaded', jobId: 'demo', fileName: 'Medpark_audio.m4a' });
     }
   }, []);
+
+  useEffect(() => {
+    const jobId = new URLSearchParams(location.search).get('approved');
+    if (!jobId) return;
+    let alive = true;
+    Promise.all([api.getApprovedMom(jobId), api.getReviewContext(jobId).catch(() => null)])
+      .then(([approved, reviewContext]) => {
+        if (!alive) return;
+        let elapsedSecs = 0;
+        try { elapsedSecs = Number(sessionStorage.getItem(`smom-elapsed-${jobId}`)) || 0; } catch { /* private mode */ }
+        dispatch({ type: 'restored', jobId, exported: parseMom(approved.document), reviewContext, elapsedSecs });
+      })
+      .catch(() => { if (alive) toast('Could not load the approved minutes.'); });
+    return () => { alive = false; };
+  }, [toast]);
 
   // Local server health → sidebar "Local server: Online/Offline"
   useEffect(() => {
@@ -238,24 +258,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'edits', edits, autoResolve: auto });
       toast(l.ed_toast);
     },
+    setReviewEditing: (editing) => dispatch({ type: 'reviewEditing', editing }),
     setRecipients: (recipients) => dispatch({ type: 'recipients', recipients }),
     async exportMom() {
-      if (!s.jobId || !view) return;
+      if (!s.jobId || !view || left || s.reviewEditing) return;
+      const clickedAt = Date.now();
       const reviewed = applyResolutions(view, issues, Object.fromEntries(Object.entries(s.res).filter(([, v]) => v !== EDITED)));
       try {
-        await api.exportMom(s.jobId, reviewed, s.recipients.map((p) => p.email));
+        const approved = await api.approveMom(s.jobId, reviewed, s.recipients.map((p) => p.email));
+        const elapsedSecs = Math.max(0, Math.round((clickedAt - s.portalOpenedAt) / 1000));
+        try {
+          sessionStorage.setItem(`smom-elapsed-${s.jobId}`, String(elapsedSecs));
+          history.replaceState(null, '', `?approved=${encodeURIComponent(s.jobId)}`);
+        } catch { /* storage and history are optional for this session */ }
+        dispatch({ type: 'done', outcome: 'download', exported: parseMom(approved.document), clickedAt });
       } catch (e) {
-        // Endpoint not implemented yet on the backend → still let the doctor download locally.
-        console.warn('exportMom failed', e);
+        toast(e instanceof Error ? e.message : 'Approval failed. Please try again.');
       }
-      dispatch({ type: 'done', outcome: 'share', exported: reviewed });
     },
     async discard() {
-      if (s.jobId) await api.discardJob(s.jobId).catch((e) => console.warn('discardJob failed', e));
       dispatch({ type: 'done', outcome: 'discard', exported: null });
       toast(l.discarded);
     },
-    newMeeting: () => dispatch({ type: 'reset' }),
+    newMeeting: () => {
+      try {
+        history.replaceState(null, '', location.pathname);
+      } catch { /* history is optional */ }
+      dispatch({ type: 'reset' });
+    },
   };
 
   return <C.Provider value={ctx}>{children}</C.Provider>;

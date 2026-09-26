@@ -467,8 +467,9 @@ the demonstration machine is disconnected from the internet.
   sending policy; never spoof an arbitrary sender identity.
 - [ ] Make approval and final delivery idempotent, with clear delivery state,
   bounded retries, and metadata-only operational events.
-- [ ] Set `COMPLETED` only after the local mail adapter accepts the final
-  delivery request; preserve the approved artifact if delivery later fails.
+- [ ] Keep `COMPLETED` for durably approved minutes; represent later local
+  delivery results separately and preserve the approved artifact if delivery
+  fails.
 - [ ] Add offline tests for directory lookup, recipient validation, sender
   authorization, email composition, and local delivery.
 
@@ -496,9 +497,10 @@ Status: implemented where marked; remaining items are deliberate backlog.
   validation, and speaker-name substitution persistence when the ML team can
   supply reliable annotations. The current frontend-only red-word behaviour is
   not a backend contract.
-- [ ] Define approval/export/local-delivery endpoints and their idempotent
-  success/failure states. Until then, the portal must not treat a failed request
-  as confirmed delivery.
+- [x] Define and implement idempotent approval and approved-MoM retrieval for
+  the no-recipient flow. The portal does not claim delivery after approval.
+- [ ] Define local-delivery endpoints and their idempotent success/failure
+  states for a later recipient flow.
 - [ ] Define retention, discard, and purge policy. There is no job deletion API;
   current deletion claims remain a known UI issue, not an implemented backend
   capability.
@@ -506,3 +508,130 @@ Status: implemented where marked; remaining items are deliberate backlog.
   The current portal directory remains a demo stub.
 - [ ] Implement manual retry and readiness semantics after real local model
   behaviour supplies the final timeout and error taxonomy.
+
+# Approval and completion-screen increment: no recipients
+
+Status: implemented on 27 September 2026 for the zero-recipient demo path;
+visual PDF verification remains pending.
+The browser starts with an audio-only upload,
+the reviewer edits the displayed draft, and Export approves that exact result.
+With an empty recipient list, the job ends on a download screen and **no email
+is composed, queued, or sent**.
+
+## Starting behavior addressed
+
+- The portal called an absent `/export` endpoint, ignored its failure,
+  and still showed **Shared**. There was no persisted approved MoM.
+- The recipient picker could prefill addresses inferred from mentioned names
+  and could not remove its last address. This made zero recipients unreliable.
+- **Download PDF** opens a print window. Keep that behavior in this
+  increment; a direct, polished PDF download is deferred.
+- **Your time** initially measured only review-screen time, then reused a
+  session-storage timestamp across visits to the upload screen. That could
+  overstate a fresh run. The prior `review-context.processing.elapsedMs`
+  covers queue and handoff time, rather than the sum of model stages.
+- The completion screen displayed **Meeting data deleted** although there is
+  no deletion API or retention/cleanup implementation.
+
+## Implemented user flow and success states
+
+1. Start a per-meeting wall-clock timer when the portal URL first opens. Upload
+   the audio, process it locally, edit the review pane, and allow an empty
+   recipient list. No recipient is selected automatically from meeting names.
+2. On Export click, capture the elapsed user time and build one immutable
+   approved MoM snapshot from the visible edits and resolved flags. Keep the
+   existing blocking-review rule. Disable repeat submissions while saving.
+3. Submit that snapshot with `recipients: []` to a local approval endpoint. The
+   pipeline validates the schema-version-1 document, persists it under the job,
+   and marks the job `COMPLETED`. No mail adapter is invoked.
+   The separate, currently unimplemented ready-for-review notification must
+   stay disabled for this no-email demo. Because recipients are selected only
+   at Export, that earlier notification cannot be controlled by the empty
+   recipient list.
+4. Navigate to the completion screen only after approval is confirmed. Show
+   **Approved / Ready to download** and **No email sent** rather than **Shared**
+   or an internal-email claim. If saving fails, stay on Review, preserve edits,
+   show the error, and allow retry. Never report approval after a failed call.
+5. Keep the current print-based PDF control, using the approved document
+   returned by the server. Reloading the completion URL retrieves the approved
+   document again.
+
+### Approval contract
+
+- `POST /api/v1/jobs/{job_id}/approve` with
+  `{ "schemaVersion": 1, "document": <reviewed MoM>, "recipients": [] }`.
+  Return the approved document, job ID, and approval timestamp.
+- `GET /api/v1/jobs/{job_id}/approved-mom` returns only the approved snapshot
+  after approval. Keep the draft endpoint distinct so a changed draft cannot
+  silently alter an approved download.
+- Make identical approval retries idempotent. A different document after
+  approval requires an explicit conflict or revision rule; it must not silently
+  overwrite the approved artifact. Persist the approval and job-state change
+  atomically, with metadata-only events.
+- Use the normal terminal **COMPLETED** status for an approved document,
+  whether or not delivery occurs. The completion screen separately says
+  **No email sent** when the recipient list is empty. Do not add a special
+  no-recipient job status.
+- For this increment, a nonempty recipient list must not silently take this
+  branch: either use a separately verified local-delivery path or keep approval
+  blocked with a clear message. Do not send through external SMTP or an API.
+
+## Completion-screen work and deferred PDF improvement
+
+- Keep `printPdf` unchanged this iteration. Later, choose a local PDF renderer
+  and align its sections with the review pane, including topics and any
+  uncertain or missing details. Verify Romanian and Russian fonts, pagination,
+  and that output comes from the approved snapshot.
+- In `DoneScreen`, keep one prominent **Download PDF** action and hide the
+  **Download JSON** action. JSON remains the internal approved format, but
+  direct JSON download is outside this screen's current scope.
+- Hide the entire **Meeting data deleted** box and its heading. Also remove
+  other visible deletion claims tied to Export (for example upload privacy and
+  recording labels) so the portal does not imply cleanup happened. Do not
+  delete the source audio, transcript, draft, or approved MoM in this increment.
+- Treat cleanup as a later, likely post-MVP step: agree retention and deletion
+  timing, add a separate cleanup operation/status, and only then restore
+  deletion wording after verifying which artifacts were removed. The existing
+  Discard copy and absent delete endpoint need the same honest treatment.
+
+## Timing
+
+| Metric | Source and boundary | Display rule |
+| --- | --- | --- |
+| **Portal elapsed time** | Browser starts a fresh timer on each portal page load or **New meeting**, then captures Export click time before awaiting the approval API. This wall-clock interval includes upload, processing wait, and review. Do not reuse a start timestamp from a previous visit. Save the final elapsed seconds against the approved job for a completion-page reload. | Show the measured interval beneath the savings estimate so the comparison remains transparent. A retry uses the successful Export click. |
+| **Estimated time saved** | Use the team's illustrative 60-minute manual-writing comparison minus the portal elapsed time, rounded to whole minutes and floored at zero. | Make this the prominent completion-card value and restore the time-saved message. Label it as an estimate, not a measured clinical productivity claim. |
+| **Automatic processing** | Persist separate `audioStageMs` and `momStageMs` for the two local ML stages, measured from accepted model submission to validated callback. These are *stage elapsed times*, including service and callback overhead. | Show `audioStageMs + momStageMs` with an audio/MoM-stage label. Show `—` when either duration is unavailable; do not substitute `processing.elapsedMs`. |
+| **End-to-end processing** | Existing `review-context.processing.elapsedMs` from persisted job creation to review readiness. | Keep for diagnostics or a separate total; it includes queue and coordination time and is not the sum of the two ML stages. |
+
+Persist stage boundaries in job state or metadata so worker restarts and browser
+reloads do not reset them. Use server-side timestamps and idempotent callbacks;
+do not infer stage durations from the frontend's two-second status polling.
+Update the development mocks with distinct, plausible stage and end-to-end
+durations. The 60-minute manual-writing value is an explicit comparison
+assumption for the demo; display the actual portal time alongside it. The
+audio length is source metadata, not a timing substitute.
+
+## Implementation order and acceptance checks
+
+- [x] Agree the narrow approval/status/timing contract and record changes
+  to the pipeline decision log, scope, OpenAPI, and portal API alignment notes.
+- [x] Add atomic approved-artifact persistence, idempotent approval/retrieval,
+  and the no-recipient branch. Verify that an empty list produces no mail call
+  or queued email; rejected input leaves no success claim.
+- [x] Capture both ML-stage timings and expose their definitions in review
+  context. Verify their sum separately from the existing end-to-end elapsed
+  time. A resumed-job timing check remains useful if retry is implemented.
+- [x] Update the portal to start the URL-open timer, permit zero recipients,
+  submit the approved snapshot, handle errors, and restore the completion
+  screen from the approved endpoint after reload.
+- [ ] Check that the existing print-based PDF control receives the approved
+  document. The direct PDF download remains a later increment.
+- [x] Change completion copy for zero recipients, hide JSON and deletion UI,
+  and show estimated savings with the measured portal time in RO/RU/EN.
+- [ ] Run the frontend typecheck/build, pipeline tests, and an offline live
+  smoke test from upload through approval and PDF download. For any pipeline
+  implementation iteration, apply the restart-and-live-verification rule at
+  the top of this plan.
+
+Decisions still open: direct PDF generation, future local-mail delivery, and
+cleanup policy. They do not block the zero-recipient approval path.

@@ -38,11 +38,9 @@ Last updated: 26 September 2026
 ## Pipeline completion boundary
 
 The processing stage is complete when the pipeline has persisted and exposed a
-review-ready draft MoM JSON artifact and has created the one-time local
-ready-for-review notification for the configured submitting author. The
-end-to-end product flow is complete when the portal records the author's
-approval and selected recipients, and the local mail adapter accepts the
-approved MoM for delivery.
+review-ready draft MoM JSON artifact. The current no-recipient flow is complete
+when the portal persists the approved MoM; no email is sent. Local notification
+and recipient delivery remain separate future work.
 
 The frontend may display and edit that draft and may create ODF or DOCX files.
 Those editing and export functions remain frontend responsibilities, while the

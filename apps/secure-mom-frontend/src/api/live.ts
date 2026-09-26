@@ -1,5 +1,6 @@
 import {
   ApiError,
+  type ApprovedMom,
   type CreateJobResponse,
   type JobStatusResponse,
   type MomResult,
@@ -58,13 +59,15 @@ export const liveApi: SecureMomApi = {
       return false;
     }
   },
-  async exportMom(jobId, mom, recipients) {
-    // TODO(backend): endpoint not in openapi.json yet — agree the contract with BE.
-    await req(`/api/v1/jobs/${enc(jobId)}/export`, {
+  async approveMom(jobId, mom, recipients) {
+    return (await req(`/api/v1/jobs/${enc(jobId)}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mom, recipients }),
-    });
+      body: JSON.stringify({ schemaVersion: 1, document: mom, recipients }),
+    })).json() as Promise<ApprovedMom>;
+  },
+  async getApprovedMom(jobId) {
+    return (await req(`/api/v1/jobs/${enc(jobId)}/approved-mom`)).json() as Promise<ApprovedMom>;
   },
   async discardJob(jobId) {
     // TODO(backend): endpoint not in openapi.json yet.

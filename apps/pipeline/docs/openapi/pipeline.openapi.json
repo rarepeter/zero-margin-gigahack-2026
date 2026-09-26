@@ -1,6 +1,63 @@
 {
   "components": {
     "schemas": {
+      "ApprovalRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/MomDocument"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recipients",
+            "type": "array"
+          },
+          "schemaVersion": {
+            "const": 1,
+            "title": "Schemaversion",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "document",
+          "recipients"
+        ],
+        "title": "ApprovalRequest",
+        "type": "object"
+      },
+      "ApprovedMom": {
+        "additionalProperties": false,
+        "properties": {
+          "approvedAt": {
+            "format": "date-time",
+            "title": "Approvedat",
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/MomDocument"
+          },
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "schemaVersion": {
+            "const": 1,
+            "title": "Schemaversion",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "jobId",
+          "approvedAt",
+          "document"
+        ],
+        "title": "ApprovedMom",
+        "type": "object"
+      },
       "ArtifactAvailability": {
         "properties": {
           "momAvailable": {
@@ -212,6 +269,7 @@
           "TRANSCRIBING",
           "GENERATING_MOM",
           "AWAITING_REVIEW",
+          "COMPLETED",
           "FAILED"
         ],
         "title": "JobStatus",
@@ -1101,6 +1159,18 @@
       },
       "ProcessingSummary": {
         "properties": {
+          "audioStageMs": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audiostagems"
+          },
           "completedAt": {
             "format": "date-time",
             "title": "Completedat",
@@ -1110,6 +1180,18 @@
             "minimum": 0.0,
             "title": "Elapsedms",
             "type": "integer"
+          },
+          "momStageMs": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Momstagems"
           },
           "startedAt": {
             "format": "date-time",
@@ -2028,6 +2110,154 @@
           }
         },
         "summary": "Read persisted pipeline job status"
+      }
+    },
+    "/api/v1/jobs/{job_id}/approve": {
+      "post": {
+        "operationId": "approve_mom_api_v1_jobs__job_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovedMom"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Persist an approved MoM without email delivery"
+      }
+    },
+    "/api/v1/jobs/{job_id}/approved-mom": {
+      "get": {
+        "operationId": "get_approved_mom_api_v1_jobs__job_id__approved_mom_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovedMom"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Read the persisted approved MoM"
       }
     },
     "/api/v1/jobs/{job_id}/mom": {

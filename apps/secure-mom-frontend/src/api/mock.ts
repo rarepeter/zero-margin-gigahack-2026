@@ -2,7 +2,7 @@
 // Responses follow the same versioned JSON contracts as the pipeline API.
 import momExample from './examples/mom.example.json';
 import transcriptExample from './examples/transcript.example.json';
-import type { JobStatus, JobStatusResponse, MomResult, ReviewContextResponse, SecureMomApi, TranscriptionResult } from './types';
+import type { ApprovedMom, JobStatus, JobStatusResponse, MomResult, ReviewContextResponse, SecureMomApi, TranscriptionResult } from './types';
 
 /** Simulated pipeline timing (ms from upload). Tweak to slow the demo down. */
 const T_TRANSCRIBING = 400;
@@ -19,6 +19,7 @@ interface MockJob {
 
 const transcriptFixture = transcriptExample as unknown as TranscriptionResult;
 const jobs = new Map<string, MockJob>();
+const approvals = new Map<string, ApprovedMom>();
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fallbackJob = (): MockJob => ({
   created: Date.now() - T_READY,
@@ -104,6 +105,8 @@ export const mockApi: SecureMomApi = {
         startedAt: createdAt,
         completedAt,
         elapsedMs: Math.max(T_READY, Date.now() - job.created),
+        audioStageMs: T_GENERATING - T_TRANSCRIBING,
+        momStageMs: T_READY - T_GENERATING,
       },
       meetingMetadata: {
         durationMs: transcriptFixture.audioMetadata.durationMs,
@@ -133,8 +136,24 @@ export const mockApi: SecureMomApi = {
   async health() {
     return true;
   },
-  async exportMom() {
+  async approveMom(jobId, mom, recipients) {
     await wait(400);
+    if (recipients.length) throw new Error('Recipient delivery is not available in this flow.');
+    const existing = approvals.get(jobId);
+    if (existing) return existing;
+    const approved: ApprovedMom = {
+      schemaVersion: 1,
+      jobId,
+      approvedAt: new Date().toISOString(),
+      document: structuredClone(mom) as ApprovedMom['document'],
+    };
+    approvals.set(jobId, approved);
+    return approved;
+  },
+  async getApprovedMom(jobId) {
+    const approved = approvals.get(jobId);
+    if (!approved) throw new Error('The MoM has not been approved.');
+    return structuredClone(approved);
   },
   async discardJob(jobId) {
     jobs.delete(jobId);

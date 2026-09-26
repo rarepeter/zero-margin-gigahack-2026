@@ -38,7 +38,7 @@ Statuses used here:
 | TD-024 | Accepted | Validate schema-version-1 MoM review documents in the pipeline. | The existing portal fields are now a typed backend contract; all evidence uses stable transcript segment IDs. |
 | TD-025 | Open | Final public HTTP API contract. | It must add approval, recipient selection, directory lookup, notification status, and local delivery without exposing the submitter email in browser review context. |
 | TD-026 | Open | Exact contracts exposed by the two ML services. | Adapter specifications depend on ML-owner input. |
-| TD-027 | Open | Meaning and ownership of the final `COMPLETED` state. | `AWAITING_REVIEW` remains the draft checkpoint; `COMPLETED` should represent successful handoff of the approved MoM to the local mail adapter. |
+| TD-027 | Accepted for current increment | `COMPLETED` means the reviewed MoM was durably approved. | Approval without recipients is valid and needs no special terminal status or email delivery. Future delivery outcome is separate from approval. |
 | TD-028 | Deferred | Rich evidence annotations and a reviewer-resolution protocol. | Stable segment-ID references are validated now; word spans, resolution targets, and recommendation semantics remain deferred. |
 | TD-029 | Deferred | Content-specific logging restrictions. | No strict policy has been agreed; privacy-safe defaults should be revisited before real institutional use. |
 | TD-030 | Deferred | Container packaging and Compose deployment. | Revisit only if direct execution is insufficient. |

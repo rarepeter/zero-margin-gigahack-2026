@@ -18,6 +18,8 @@ from .config import get_settings
 from .job_store import InvalidJobStateError, JobNotFoundError, JobStore
 from .logging_config import configure_logging
 from .models import (
+    ApprovalRequest,
+    ApprovedMom,
     ArtifactLink,
     CreateJobResponse,
     ErrorDetail,
@@ -27,6 +29,7 @@ from .models import (
     JobStatus,
     JobStatusResponse,
     MeetingMetadata,
+    MomDocument,
     MomResult,
     MomReceipt,
     ProcessingSummary,
@@ -418,11 +421,13 @@ async def receive_transcription(
                     "transcription_source": descriptor,
                 }
             )
+            received_at = utc_now()
             received_state = state_model.model_copy(
                 update={
                     "status": JobStatus.TRANSCRIBING,
                     "stage": "transcription_received",
-                    "updated_at": utc_now(),
+                    "updated_at": received_at,
+                    "audio_stage_ms": max(0, round((received_at - state_model.updated_at).total_seconds() * 1000)),
                     "artifacts": artifacts,
                     "error": None,
                 }
@@ -518,6 +523,8 @@ def _build_review_context(
             started_at=state_model.created_at,
             completed_at=completed_at,
             elapsed_ms=elapsed_ms,
+            audio_stage_ms=state_model.audio_stage_ms,
+            mom_stage_ms=max(0, round((completed_at - state_model.updated_at).total_seconds() * 1000)),
         ),
         meeting_metadata=MeetingMetadata(
             duration_ms=transcription.audio_metadata.duration_ms,
@@ -554,7 +561,7 @@ def _build_review_context(
 
 
 def _validate_mom_evidence(
-    mom: MomResult,
+    document: MomDocument,
     transcription: TranscriptionResult,
 ) -> None:
     """Reject a draft whose supporting statements point outside this transcript.
@@ -564,13 +571,13 @@ def _validate_mom_evidence(
     """
     segment_ids = {segment.id for segment in transcription.transcript.segments}
     evidence = [
-        *(item.evidence for item in mom.document.decisions),
-        *(item.evidence for item in mom.document.actions),
-        *(item.evidence for item in mom.document.findings),
-        *(item.evidence for item in mom.document.risks if item.evidence is not None),
+        *(item.evidence for item in document.decisions),
+        *(item.evidence for item in document.actions),
+        *(item.evidence for item in document.findings),
+        *(item.evidence for item in document.risks if item.evidence is not None),
         *(
             item.evidence
-            for item in mom.document.open_questions
+            for item in document.open_questions
             if item.evidence is not None
         ),
     ]
@@ -711,7 +718,7 @@ async def receive_mom(
                 job_store.read_artifact_at(directory, transcription_descriptor)
             )
             try:
-                _validate_mom_evidence(mom, transcription)
+                _validate_mom_evidence(mom.document, transcription)
             except ValueError:
                 return _error(
                     status.HTTP_400_BAD_REQUEST,
@@ -760,6 +767,7 @@ async def receive_mom(
                     "status": JobStatus.AWAITING_REVIEW,
                     "stage": "review_ready",
                     "updated_at": completed_at,
+                    "mom_stage_ms": review_context.processing.mom_stage_ms,
                     "artifacts": artifacts,
                     "error": None,
                 }
@@ -944,6 +952,130 @@ def get_review_context(job_id: str) -> ReviewContextResponse | JSONResponse:
         )
     logger.info("event=review_context_read job_id=%s", job_id)
     return ReviewContextResponse.from_context(context)
+
+
+@app.post(
+    f"{settings.api_prefix}{settings.routes.approve}",
+    response_model=ApprovedMom,
+    responses={
+        404: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope},
+        500: {"model": ErrorEnvelope},
+    },
+    summary="Persist an approved MoM without email delivery",
+)
+def approve_mom(job_id: str, request: ApprovalRequest) -> ApprovedMom | JSONResponse:
+    if request.recipients:
+        return _error(
+            409,
+            "DELIVERY_NOT_AVAILABLE",
+            "Recipient delivery is not available in this flow.",
+            False,
+        )
+    try:
+        with job_store.locked_job(job_id) as directory:
+            state_model = job_store.read_state(job_id)
+            existing = state_model.artifacts.approved_mom
+            if existing is not None:
+                approved = ApprovedMom.model_validate_json(
+                    job_store.read_artifact_at(directory, existing)
+                )
+                if approved.document != request.document:
+                    return _error(
+                        409, "APPROVAL_CONFLICT", "A different MoM is already approved.", False
+                    )
+                return approved
+            if state_model.status != JobStatus.AWAITING_REVIEW:
+                return _error(
+                    409, "NOT_AWAITING_REVIEW", "The job is not ready for approval.", True
+                )
+            transcription_descriptor = state_model.artifacts.transcription_source
+            if transcription_descriptor is None:
+                raise InvalidJobStateError("The transcription artifact is missing")
+            transcription = TranscriptionResult.model_validate_json(
+                job_store.read_artifact_at(directory, transcription_descriptor)
+            )
+            _validate_mom_evidence(request.document, transcription)
+            approved = ApprovedMom(
+                schema_version=1,
+                job_id=job_id,
+                approved_at=utc_now(),
+                document=request.document,
+            )
+            payload = (
+                json.dumps(
+                    approved.model_dump(mode="json", by_alias=True),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n"
+            ).encode("utf-8")
+            descriptor = job_store.write_artifact_at(
+                directory,
+                relative_path="mom/approved.json",
+                data=payload,
+                media_type="application/json",
+            )
+            updated = state_model.model_copy(
+                update={
+                    "status": JobStatus.COMPLETED,
+                    "stage": "approved",
+                    "updated_at": approved.approved_at,
+                    "artifacts": state_model.artifacts.model_copy(
+                        update={"approved_mom": descriptor}
+                    ),
+                    "error": None,
+                }
+            )
+            job_store.write_state_at(directory, updated)
+            job_store.append_event_at(
+                directory,
+                job_id=job_id,
+                event_type="mom.approved",
+                producer="pipeline-api",
+                value={"sha256": descriptor.sha256, "delivery": "none"},
+            )
+            return approved
+    except JobNotFoundError:
+        return _error(404, "JOB_NOT_FOUND", "The requested job does not exist.", False)
+    except (InvalidJobStateError, ValidationError, OSError):
+        logger.error("event=mom_approval_failed job_id=%s", job_id)
+        return _error(500, "APPROVAL_FAILED", "The approved MoM could not be saved.", True)
+    except ValueError:
+        return _error(
+            409,
+            "INVALID_APPROVAL_EVIDENCE",
+            "The approved MoM references missing evidence.",
+            False,
+        )
+
+
+@app.get(
+    f"{settings.api_prefix}{settings.routes.approved_mom}",
+    response_model=ApprovedMom,
+    responses={
+        404: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope},
+        500: {"model": ErrorEnvelope},
+    },
+    summary="Read the persisted approved MoM",
+)
+def get_approved_mom(job_id: str) -> ApprovedMom | JSONResponse:
+    try:
+        state_model = job_store.read_state(job_id)
+        descriptor = state_model.artifacts.approved_mom
+        if descriptor is None:
+            return _error(
+                409, "APPROVAL_NOT_READY", "The MoM has not been approved.", True
+            )
+        return ApprovedMom.model_validate_json(
+            job_store.read_artifact_at(job_store.job_directory(job_id), descriptor)
+        )
+    except JobNotFoundError:
+        return _error(404, "JOB_NOT_FOUND", "The requested job does not exist.", False)
+    except (InvalidJobStateError, ValidationError, ValueError, OSError):
+        logger.error("event=approved_mom_read_failed job_id=%s", job_id)
+        return _error(500, "APPROVED_MOM_INVALID", "The approved MoM could not be read.", False)
 
 
 @app.post(

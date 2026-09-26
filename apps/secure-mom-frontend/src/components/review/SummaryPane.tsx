@@ -43,7 +43,7 @@ function Field({ path, value, draft, set }: { path: string; value: string; draft
 
 /** Right panel: the minutes as a readable document. Red words = values the doctor must confirm. */
 export function SummaryPane({ onEvidence }: { onEvidence: OnEv }) {
-  const { s, l, issues, view, saveEdits } = useApp();
+  const { s, l, issues, view, saveEdits, setReviewEditing } = useApp();
   const show = useDisplay();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Edits>({});
@@ -54,7 +54,7 @@ export function SummaryPane({ onEvidence }: { onEvidence: OnEv }) {
   const text = (path: string, value: string, inline: Issue[]) =>
     editing ? <Field path={path} value={value} draft={draft} set={set} /> : <Inline text={value} issues={inline} onEv={onEvidence} />;
 
-  const start = () => { setDraft({ ...s.edits }); setEditing(true); };
+  const start = () => { setDraft({ ...s.edits }); setEditing(true); setReviewEditing(true); };
   const save = () => {
     const changed = Object.fromEntries(Object.entries(draft).filter(([k, v]) => {
       const orig = k.split('.').reduce<unknown>((o, key) => (o as Record<string, unknown>)?.[key], s.mom);
@@ -62,6 +62,7 @@ export function SummaryPane({ onEvidence }: { onEvidence: OnEv }) {
     }));
     saveEdits(changed);
     setEditing(false);
+    setReviewEditing(false);
   };
 
   const risks = [...view.risks, ...view.open_questions];
@@ -78,7 +79,7 @@ export function SummaryPane({ onEvidence }: { onEvidence: OnEv }) {
             {editing ? (
               <>
                 <button className="btn-sm btn-sm-primary" type="button" onClick={save}>{l.ed_save}</button>
-                <button className="tx-toggle" type="button" onClick={() => setEditing(false)}>{l.ed_cancel}</button>
+              <button className="tx-toggle" type="button" onClick={() => { setEditing(false); setReviewEditing(false); }}>{l.ed_cancel}</button>
               </>
             ) : (
               <button className="tx-toggle" type="button" onClick={start}><Icon name="pen" />{l.ed}</button>
