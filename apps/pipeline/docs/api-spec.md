@@ -120,6 +120,12 @@ An identical replay returns `200`; a conflicting body, mismatched model job ID,
 or wrong job state returns `409`. Invalid JSON returns `400`, an unsupported
 media type returns `415`, and an oversized document returns `413`.
 
+Before publishing the first `review_ready` receipt, the pipeline also persists
+an internal, content-free draft-notification intent for the stored submitting
+author. The worker submits it through local SMTP. This adds no public response
+field or notification endpoint, and notification success or failure does not
+change the job's review-ready status.
+
 ### `POST /api/v1/integrations/text/jobs/{jobId}/failure`
 
 Local integration endpoint used by the text/MoM service when it cannot produce

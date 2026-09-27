@@ -90,6 +90,14 @@ class JobArtifacts(PipelineModel):
         default=None,
         alias="deliveryResult",
     )
+    notification_intent: ArtifactDescriptor | None = Field(
+        default=None,
+        alias="notificationIntent",
+    )
+    notification_result: ArtifactDescriptor | None = Field(
+        default=None,
+        alias="notificationResult",
+    )
 
 
 class JobError(PipelineModel):
@@ -467,6 +475,28 @@ class DeliveryResult(ContractModel):
     message_id: str = Field(alias="messageId", min_length=1)
     attempted_at: datetime = Field(alias="attemptedAt")
     recipient_count: int = Field(alias="recipientCount", ge=1)
+    error_code: str | None = Field(default=None, alias="errorCode")
+
+
+class NotificationIntent(ContractModel):
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    job_id: str = Field(alias="jobId", min_length=1)
+    recipient: str = Field(min_length=3, pattern=r"^[^@\s]+@[^@\s]+$")
+    subject: str = Field(min_length=1)
+    review_url: str = Field(alias="reviewUrl", min_length=1)
+    message_id: str = Field(alias="messageId", min_length=1)
+    created_at: datetime = Field(alias="createdAt")
+
+
+class NotificationResult(ContractModel):
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    job_id: str = Field(alias="jobId", min_length=1)
+    status: Literal["sending", "accepted", "failed", "unknown"]
+    attempted_at: datetime = Field(alias="attemptedAt")
+    attempt_count: int = Field(alias="attemptCount", ge=1)
+    message_id: str = Field(alias="messageId", min_length=1)
+    retryable: bool
+    acceptance_known: bool = Field(alias="acceptanceKnown")
     error_code: str | None = Field(default=None, alias="errorCode")
 
 

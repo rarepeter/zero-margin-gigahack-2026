@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import json
 import logging
 import time
 from contextlib import contextmanager
@@ -21,17 +22,22 @@ from .intermediate_transformer import (
 )
 from .job_store import InvalidJobStateError, JobStore
 from .logging_config import configure_logging
+from .mail_adapter import LocalMailAdapter, MailAdapterError, make_local_mail_adapter
 from .models import (
     ArtifactDescriptor,
     AudioSubmission,
     JobAttempts,
     JobError,
+    JobState,
     JobStatus,
     ModelJobs,
+    NotificationIntent,
+    NotificationResult,
     TextSubmission,
     TranscriptionSource,
     utc_now,
 )
+from .review_notification import compose_review_notification
 from .text_service import (
     HttpTextService,
     TextConnectionError,
@@ -53,6 +59,207 @@ class TextService(Protocol):
         transcription_path: Path,
         uploaded_at: datetime,
     ) -> TextSubmission: ...
+
+
+def _notification_bytes(result: NotificationResult) -> bytes:
+    return (
+        json.dumps(
+            result.model_dump(mode="json", by_alias=True),
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _read_notification_result(
+    store: JobStore,
+    directory: Path,
+    state: JobState,
+) -> NotificationResult | None:
+    descriptor = state.artifacts.notification_result
+    if descriptor is None:
+        return None
+    return NotificationResult.model_validate_json(
+        store.read_artifact_at(directory, descriptor)
+    )
+
+
+def _write_notification_result(
+    store: JobStore,
+    directory: Path,
+    state: JobState,
+    result: NotificationResult,
+) -> JobState:
+    descriptor = store.write_artifact_at(
+        directory,
+        relative_path="notification/result.json",
+        data=_notification_bytes(result),
+        media_type="application/json",
+    )
+    artifacts = state.artifacts.model_copy(
+        update={"notification_result": descriptor}
+    )
+    updated = state.model_copy(
+        update={"artifacts": artifacts, "updated_at": utc_now()}
+    )
+    store.write_state_at(directory, updated)
+    return updated
+
+
+def _advance_review_notification(
+    store: JobStore,
+    job_id: str,
+    mail_adapter: LocalMailAdapter,
+    *,
+    sender: str,
+    max_attempts: int,
+    logger: logging.Logger,
+) -> bool:
+    with store.locked_job(job_id) as directory:
+        state = store.read_state(job_id)
+        if not (
+            state.status == JobStatus.AWAITING_REVIEW
+            and state.stage == "review_ready"
+            and state.artifacts.notification_intent is not None
+        ):
+            return False
+
+        intent = NotificationIntent.model_validate_json(
+            store.read_artifact_at(directory, state.artifacts.notification_intent)
+        )
+        if intent.job_id != job_id:
+            raise InvalidJobStateError("The notification intent job ID is invalid")
+
+        previous = _read_notification_result(store, directory, state)
+        if previous is not None and previous.message_id != intent.message_id:
+            raise InvalidJobStateError("The notification result does not match its intent")
+        if previous is not None and previous.status in {"accepted", "unknown"}:
+            return False
+        if previous is not None and previous.status == "sending":
+            recovered = previous.model_copy(
+                update={
+                    "status": "unknown",
+                    "retryable": False,
+                    "acceptance_known": False,
+                    "error_code": "NOTIFICATION_ACCEPTANCE_UNKNOWN",
+                }
+            )
+            _write_notification_result(store, directory, state, recovered)
+            store.append_event_at(
+                directory,
+                job_id=job_id,
+                event_type="notification.send.unknown",
+                producer="pipeline-worker",
+                value={
+                    "messageId": intent.message_id,
+                    "attemptCount": recovered.attempt_count,
+                    "acceptanceKnown": False,
+                    "errorCode": recovered.error_code,
+                },
+            )
+            logger.warning(
+                "event=notification_acceptance_unknown job_id=%s attempt=%d",
+                job_id,
+                recovered.attempt_count,
+            )
+            return True
+        if previous is not None and (
+            not previous.retryable or previous.attempt_count >= max_attempts
+        ):
+            return False
+
+        attempt_count = 1 if previous is None else previous.attempt_count + 1
+        claim = NotificationResult(
+            schema_version=1,
+            job_id=job_id,
+            status="sending",
+            attempted_at=utc_now(),
+            attempt_count=attempt_count,
+            message_id=intent.message_id,
+            retryable=False,
+            acceptance_known=False,
+            error_code=None,
+        )
+        _write_notification_result(store, directory, state, claim)
+        store.append_event_at(
+            directory,
+            job_id=job_id,
+            event_type="notification.send.started",
+            producer="pipeline-worker",
+            value={
+                "messageId": intent.message_id,
+                "attemptCount": attempt_count,
+            },
+        )
+
+    try:
+        mail_adapter.send(compose_review_notification(intent, sender=sender))
+    except MailAdapterError as exc:
+        acceptance_unknown = exc.acceptance_unknown
+        result = claim.model_copy(
+            update={
+                "status": "unknown" if acceptance_unknown else "failed",
+                "retryable": (
+                    exc.retryable
+                    and not acceptance_unknown
+                    and attempt_count < max_attempts
+                ),
+                "acceptance_known": not acceptance_unknown,
+                "error_code": (
+                    "NOTIFICATION_ACCEPTANCE_UNKNOWN"
+                    if acceptance_unknown
+                    else "LOCAL_SMTP_FAILED"
+                ),
+            }
+        )
+    else:
+        result = claim.model_copy(
+            update={
+                "status": "accepted",
+                "retryable": False,
+                "acceptance_known": True,
+                "error_code": None,
+            }
+        )
+
+    with store.locked_job(job_id) as directory:
+        state = store.read_state(job_id)
+        current = _read_notification_result(store, directory, state)
+        if current is None or current.status != "sending":
+            return True
+        if (
+            current.message_id != intent.message_id
+            or current.attempt_count != attempt_count
+        ):
+            raise InvalidJobStateError("The notification claim changed during submission")
+        _write_notification_result(store, directory, state, result)
+        if result.status == "accepted":
+            event_type = "notification.send.accepted"
+        elif result.status == "unknown":
+            event_type = "notification.send.unknown"
+        else:
+            event_type = "notification.send.failed"
+        store.append_event_at(
+            directory,
+            job_id=job_id,
+            event_type=event_type,
+            producer="pipeline-worker",
+            value={
+                "messageId": intent.message_id,
+                "attemptCount": attempt_count,
+                "retryable": result.retryable,
+                "acceptanceKnown": result.acceptance_known,
+                "errorCode": result.error_code,
+            },
+        )
+    logger.info(
+        "event=notification_send_finished job_id=%s status=%s attempt=%d",
+        job_id,
+        result.status,
+        attempt_count,
+    )
+    return True
 
 
 @contextmanager
@@ -507,6 +714,9 @@ def process_one(
     logger: logging.Logger,
     text_service: TextService,
     transformer: IntermediateTransformer | None = None,
+    mail_adapter: LocalMailAdapter | None = None,
+    notification_sender: str = "secure-mom@medpark.test",
+    notification_max_attempts: int = 2,
 ) -> bool:
     """Advance one job through all immediately available checkpoints."""
     transformer = transformer or StructuredTranscriptionTransformer()
@@ -520,6 +730,18 @@ def process_one(
             store.states(),
             key=lambda state: (state.created_at, state.job_id),
         )
+
+        if mail_adapter is not None:
+            for state in states:
+                if _advance_review_notification(
+                    store,
+                    state.job_id,
+                    mail_adapter,
+                    sender=notification_sender,
+                    max_attempts=notification_max_attempts,
+                    logger=logger,
+                ):
+                    return True
 
         for state in states:
             if (
@@ -594,13 +816,32 @@ def run() -> None:
         settings.text_service_timeout_seconds,
     )
     transformer = StructuredTranscriptionTransformer()
+    mail_adapter = make_local_mail_adapter(settings)
 
     if args.once:
-        process_one(store, audio_service, logger, text_service, transformer)
+        process_one(
+            store,
+            audio_service,
+            logger,
+            text_service,
+            transformer,
+            mail_adapter,
+            settings.notification_sender,
+            settings.notification_max_attempts,
+        )
         return
 
     while True:
-        process_one(store, audio_service, logger, text_service, transformer)
+        process_one(
+            store,
+            audio_service,
+            logger,
+            text_service,
+            transformer,
+            mail_adapter,
+            settings.notification_sender,
+            settings.notification_max_attempts,
+        )
         time.sleep(settings.mock_worker_interval_seconds)
 
 

@@ -25,7 +25,7 @@ source of truth. From this directory, `npm run sync:api` copies that document to
 `openapi/openapi.json` and regenerates `src/api/schema.d.ts`.
 
 The synchronized API is currently `0.5.0-provisional`. The detailed
-The schema-version-1 MoM document is now validated by the backend; its
+schema-version-1 MoM document is now validated by the backend; its
 snake_case field naming remains the current portal contract.
 
 ## Component-to-API map
@@ -41,7 +41,7 @@ snake_case field naming remains the current portal contract.
 | AI confidence card | `getReviewContext` | `GET /api/v1/jobs/{job_id}/review-context` | Aligned to backend transcript and MoM confidence. |
 | Server indicator | `health` | `GET /health` | Route aligns, but backend health is currently a dummy liveness response and does not imply worker/model readiness. |
 | Failure screen | `retryJob` | `POST /api/v1/jobs/{job_id}/retry` | Route exists, but backend behavior is a dummy and does not actually recover a job. |
-| Recipient picker | Static `directory.ts` | No directory endpoint | Frontend-only prototype behavior. |
+| Recipient picker | `searchDirectory` with mock-only fallback | `GET /api/v1/directory?q=` | Live mode uses the server-owned local demo directory; immutable person IDs remain deferred. |
 | Approve, optionally deliver | `approveMom` | `POST /api/v1/jobs/{job_id}/approve` | Same request with or without recipients; backend skips invalid/non-allowlisted values and sends through local SMTP only when accepted recipients remain. |
 | Reload approved MoM | `getApprovedMom` | `GET /api/v1/jobs/{job_id}/approved-mom` | Reads the persisted approved document. |
 | Discard/delete | `discardJob` | No endpoint | Unsupported and conflicts with the pipeline's accepted no-deletion decision. |
@@ -125,7 +125,8 @@ input.
 - Dependency installation completed.
 - `npm run typecheck` passes after synchronizing OpenAPI.
 - `npm run build` passes.
-- All 47 pipeline tests pass.
+- All 78 pipeline tests pass, including restart-safe draft-notification
+  coverage.
 - Vite serves the index and transformed React entry module on
   `http://127.0.0.1:3100`.
 - A second Vite start fails on the occupied port, confirming `strictPort`.
@@ -134,6 +135,7 @@ input.
   expected versioned JSON contracts.
 - Visual browser interaction was not completed because no in-app or connected
   browser was available in the execution environment.
-- The delivery paths are covered with a recording adapter in pipeline tests;
-  deletion, a live directory integration, and a browser-rendered PDF remain
-  deferred or absent as recorded above.
+- Notification and delivery paths are covered with recording adapters in
+  pipeline tests; live Mailpit capture, deletion, institutional directory
+  integration, and a server-rendered attachment remain deferred or absent as
+  recorded above.

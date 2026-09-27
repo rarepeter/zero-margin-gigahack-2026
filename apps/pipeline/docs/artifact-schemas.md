@@ -20,6 +20,9 @@ runtime/jobs/<job-id>/
     approved.json
   delivery/
     result.json
+  notification/
+    intent.json
+    result.json
   review/
     context.json
   operations.ndjson
@@ -74,6 +77,12 @@ The state file is pipeline-owned. A provisional shape is:
       "path": "review/context.json",
       "mediaType": "application/json",
       "byteCount": 960,
+      "sha256": "<64 lowercase hexadecimal characters>"
+    },
+    "notificationIntent": {
+      "path": "notification/intent.json",
+      "mediaType": "application/json",
+      "byteCount": 320,
       "sha256": "<64 lowercase hexadecimal characters>"
     }
   },
@@ -246,6 +255,38 @@ delivery. The browser-facing response projects that field out.
 All three confidence values are nullable because no aggregation rule or model
 confidence calibration is assumed. There are no recommendation annotations,
 review-issue counts, or export-blocking fields in this contract.
+
+## Draft-ready notification artifacts
+
+`notification/intent.json` is written in the MoM callback before the job is
+published as `AWAITING_REVIEW / review_ready`. It contains only the job ID,
+persisted submitting-author email, generic subject, loopback review URL,
+deterministic notification-specific Message-ID, and creation time. It contains
+no transcript excerpt, MoM text, inferred meeting subject, message body, or
+credentials.
+
+`notification/result.json` is the worker-owned submission checkpoint:
+
+```json
+{
+  "schemaVersion": 1,
+  "jobId": "01J...",
+  "status": "accepted",
+  "attemptedAt": "2026-09-27T09:10:01Z",
+  "attemptCount": 1,
+  "messageId": "<secure-mom-review-01J...@medpark.test>",
+  "retryable": false,
+  "acceptanceKnown": true,
+  "errorCode": null
+}
+```
+
+The worker persists `sending` before connecting to SMTP. `accepted` is terminal.
+A known pre-submission failure uses `failed` and may be retryable within the
+configured attempt limit. `unknown` means SMTP may have accepted the message,
+including recovery from a persisted `sending` claim after process interruption;
+it is terminal to avoid blind duplicate delivery. None of these outcomes
+changes the job's `AWAITING_REVIEW / review_ready` status.
 
 ## Approved MoM and delivery-result artifacts
 

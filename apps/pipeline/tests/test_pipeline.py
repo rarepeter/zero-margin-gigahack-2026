@@ -283,14 +283,24 @@ class RecordingTextService:
 
 
 class RecordingMailAdapter:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        acceptance_unknown: bool = False,
+    ) -> None:
         self.fail = fail
+        self.acceptance_unknown = acceptance_unknown
         self.messages: list[LocalMailMessage] = []
 
     def send(self, message: LocalMailMessage) -> MailSubmission:
         self.messages.append(message)
         if self.fail:
-            raise MailAdapterError("simulated local SMTP failure", retryable=True)
+            raise MailAdapterError(
+                "simulated local SMTP failure",
+                retryable=not self.acceptance_unknown,
+                acceptance_unknown=self.acceptance_unknown,
+            )
         return MailSubmission(
             message_id=message.message_id,
             recipient_count=len(message.recipients),
@@ -303,6 +313,54 @@ def push_mom_failure(client: TestClient, job_id: str, text_model_job_id: str, bo
         json=body,
         headers={"X-Text-Model-Job-Id": text_model_job_id},
     )
+
+
+class CrashingMailAdapter:
+    def send(self, message: LocalMailMessage) -> MailSubmission:
+        del message
+        raise KeyboardInterrupt("simulated stop during SMTP submission")
+
+
+class BlockingMailAdapter(RecordingMailAdapter):
+    def __init__(self, started: Event, release: Event) -> None:
+        super().__init__()
+        self.started = started
+        self.release = release
+
+    def send(self, message: LocalMailMessage) -> MailSubmission:
+        self.messages.append(message)
+        self.started.set()
+        assert self.release.wait(timeout=2)
+        return MailSubmission(
+            message_id=message.message_id,
+            recipient_count=len(message.recipients),
+        )
+
+
+def create_review_ready_job(
+    client: TestClient,
+    store: JobStore,
+    *,
+    transcript_text: str = "meeting transcript",
+    mom_text: str = "Mock Minutes",
+) -> tuple[str, bytes]:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client,
+        job_id,
+        audio_model_job_id,
+        transcription_document(job_id, transcript_text),
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.review-ready"),
+        RecordingTextService(),
+    )
+    payload = mom_document(mom_text)
+    assert push_mom(client, job_id, "text-job-1", payload).status_code == 202
+    return job_id, payload
 
 
 def test_upload_persists_bytes_state_and_ordered_events(
@@ -1018,6 +1076,7 @@ def test_mom_callback_persists_json_and_advances_to_review(
     assert state.artifacts.mom == "mom/draft.json"
     assert state.artifacts.mom_output is not None
     assert state.artifacts.review_context is not None
+    assert state.artifacts.notification_intent is not None
     assert (store.job_directory(job_id) / "mom/draft.json").read_bytes() == payload
     assert client.get(f"/api/v1/jobs/{job_id}").json()["artifacts"] == {
         "transcriptAvailable": True,
@@ -1048,6 +1107,27 @@ def test_mom_callback_persists_json_and_advances_to_review(
         )
     )
     assert persisted_context["submittedBy"]["email"] == "demo@medpark.test"
+    notification_path = store.job_directory(job_id) / "notification/intent.json"
+    notification = json.loads(notification_path.read_text(encoding="utf-8"))
+    assert notification == {
+        "schemaVersion": 1,
+        "jobId": job_id,
+        "recipient": "demo@medpark.test",
+        "subject": "Your Secure MOM draft is ready for review",
+        "reviewUrl": f"http://127.0.0.1:3100/?review={job_id}",
+        "messageId": f"<secure-mom-review-{job_id}@medpark.test>",
+        "createdAt": notification["createdAt"],
+    }
+    intent_events = [
+        event
+        for event in store.read_events(job_id)
+        if event.event_type == "notification.intent.created"
+    ]
+    assert len(intent_events) == 1
+    assert intent_events[0].value == {"messageId": notification["messageId"]}
+    persisted_notification_metadata = notification_path.read_text(encoding="utf-8")
+    assert "meeting transcript" not in persisted_notification_metadata
+    assert "Mock Minutes" not in persisted_notification_metadata
 
     replay = push_mom(client, job_id, "text-job-1", payload)
     conflict = push_mom(
@@ -1060,6 +1140,218 @@ def test_mom_callback_persists_json_and_advances_to_review(
     assert replay.json()["replayed"] is True
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "MOM_CONFLICT"
+    assert len(
+        [
+            event
+            for event in store.read_events(job_id)
+            if event.event_type == "notification.intent.created"
+        ]
+    ) == 1
+
+
+def test_worker_sends_one_persisted_review_notification(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    transcript_secret = "PRIVATE-TRANSCRIPT-CONTENT"
+    mom_secret = "PRIVATE-MOM-CONTENT"
+    job_id, _ = create_review_ready_job(
+        client,
+        store,
+        transcript_text=transcript_secret,
+        mom_text=mom_secret,
+    )
+    mail = RecordingMailAdapter()
+
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.notification.accepted"),
+        RecordingTextService(),
+        mail_adapter=mail,
+    )
+    state = store.read_state(job_id)
+    assert state.status == JobStatus.AWAITING_REVIEW
+    assert state.stage == "review_ready"
+    assert state.error is None
+    assert state.artifacts.notification_result is not None
+    result = json.loads(
+        (store.job_directory(job_id) / "notification/result.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result["status"] == "accepted"
+    assert result["attemptCount"] == 1
+    assert result["acceptanceKnown"] is True
+    assert result["retryable"] is False
+    assert len(mail.messages) == 1
+    message = mail.messages[0]
+    assert message.sender == "secure-mom@medpark.test"
+    assert message.recipients == ("demo@medpark.test",)
+    assert message.message_id == f"<secure-mom-review-{job_id}@medpark.test>"
+    notification_metadata = (
+        (store.job_directory(job_id) / "notification/intent.json").read_text()
+        + (store.job_directory(job_id) / "notification/result.json").read_text()
+        + (store.job_directory(job_id) / "operations.ndjson").read_text()
+    )
+    assert transcript_secret not in notification_metadata
+    assert mom_secret not in notification_metadata
+    assert transcript_secret not in message.text_body
+    assert mom_secret not in message.text_body
+
+    restarted_mail = RecordingMailAdapter()
+    assert not process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.notification.restart"),
+        RecordingTextService(),
+        mail_adapter=restarted_mail,
+    )
+    assert restarted_mail.messages == []
+
+
+def test_worker_retries_only_known_pre_acceptance_failure_with_a_bound(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id, _ = create_review_ready_job(client, store)
+    failing_mail = RecordingMailAdapter(fail=True)
+
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.notification.failed-one"),
+        RecordingTextService(),
+        mail_adapter=failing_mail,
+        notification_max_attempts=2,
+    )
+    first = json.loads(
+        (store.job_directory(job_id) / "notification/result.json").read_text()
+    )
+    assert first["status"] == "failed"
+    assert first["attemptCount"] == 1
+    assert first["acceptanceKnown"] is True
+    assert first["retryable"] is True
+
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.notification.failed-two"),
+        RecordingTextService(),
+        mail_adapter=failing_mail,
+        notification_max_attempts=2,
+    )
+    second = json.loads(
+        (store.job_directory(job_id) / "notification/result.json").read_text()
+    )
+    assert second["status"] == "failed"
+    assert second["attemptCount"] == 2
+    assert second["retryable"] is False
+    assert [message.message_id for message in failing_mail.messages] == [
+        f"<secure-mom-review-{job_id}@medpark.test>",
+        f"<secure-mom-review-{job_id}@medpark.test>",
+    ]
+
+    assert not process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.notification.failed-stopped"),
+        RecordingTextService(),
+        mail_adapter=failing_mail,
+        notification_max_attempts=2,
+    )
+    assert len(failing_mail.messages) == 2
+
+
+def test_worker_does_not_retry_uncertain_or_interrupted_submission(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    uncertain_job, _ = create_review_ready_job(client, store)
+    uncertain_mail = RecordingMailAdapter(fail=True, acceptance_unknown=True)
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.notification.uncertain"),
+        RecordingTextService(),
+        mail_adapter=uncertain_mail,
+    )
+    uncertain = json.loads(
+        (store.job_directory(uncertain_job) / "notification/result.json").read_text()
+    )
+    assert uncertain["status"] == "unknown"
+    assert uncertain["acceptanceKnown"] is False
+    assert uncertain["retryable"] is False
+    assert not process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.notification.uncertain-restart"),
+        RecordingTextService(),
+        mail_adapter=RecordingMailAdapter(),
+    )
+
+    interrupted_job, _ = create_review_ready_job(client, store)
+    with pytest.raises(KeyboardInterrupt):
+        process_one(
+            store,
+            MockAudioService(),
+            logging.getLogger("test.notification.interrupted"),
+            RecordingTextService(),
+            mail_adapter=CrashingMailAdapter(),
+        )
+    sending = json.loads(
+        (store.job_directory(interrupted_job) / "notification/result.json").read_text()
+    )
+    assert sending["status"] == "sending"
+    recovered_mail = RecordingMailAdapter()
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.notification.recovered"),
+        RecordingTextService(),
+        mail_adapter=recovered_mail,
+    )
+    recovered = json.loads(
+        (store.job_directory(interrupted_job) / "notification/result.json").read_text()
+    )
+    assert recovered["status"] == "unknown"
+    assert recovered_mail.messages == []
+
+
+def test_concurrent_worker_invocation_submits_notification_once(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    create_review_ready_job(client, store)
+    started = Event()
+    release = Event()
+    mail = BlockingMailAdapter(started, release)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(
+            process_one,
+            store,
+            MockAudioService(),
+            logging.getLogger("test.notification.concurrent-one"),
+            RecordingTextService(),
+            None,
+            mail,
+        )
+        assert started.wait(timeout=2)
+        second = executor.submit(
+            process_one,
+            store,
+            MockAudioService(),
+            logging.getLogger("test.notification.concurrent-two"),
+            RecordingTextService(),
+            None,
+            mail,
+        )
+        assert second.result(timeout=2) is False
+        release.set()
+        assert first.result(timeout=2) is True
+
+    assert len(mail.messages) == 1
 
 
 def test_local_directory_searches_names_emails_and_titles(client: TestClient) -> None:

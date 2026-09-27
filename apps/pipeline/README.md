@@ -15,7 +15,8 @@ audio upload
     -> derived UTF-8 transcript.txt
     -> local MoM service: Muse Glimmer 30B Q4_K_M on llama.cpp
     -> pushed MoM JSON (`schemaVersion: 1`)
-    -> review-ready MoM and compact context artifacts
+    -> review-ready MoM, compact context, and notification intent
+    -> one restart-safe generic notification through local SMTP
 ```
 
 This is a 48-hour hackathon MVP, not a production hospital system. Runtime must
@@ -34,7 +35,9 @@ with the structured transcription to the local MoM service. The service pushes
 its versioned result to a second correlated integration endpoint, or a failure
 to a third; the pipeline validates and atomically
 stores `mom/draft.json` plus `review/context.json`, then advances to
-`AWAITING_REVIEW / review_ready`.
+`AWAITING_REVIEW / review_ready`. Before publishing that state it also stores a
+content-free `notification/intent.json`. The worker claims and submits that
+intent through local SMTP without changing the review-ready workflow state.
 
 In the runnable development flow, the mock audio adapter schedules that callback
 five seconds after accepting a recording and sends a deterministic
@@ -72,7 +75,7 @@ PIPELINE_PORTAL_BASE_URL=http://127.0.0.1:3100
 
 The pipeline validates this as an HTTP(S) loopback URL and normalizes its base
 path. `build_review_url(...)` produces a content-free
-`?review=<encoded-job-id>` link for the later draft-ready notification. The
+`?review=<encoded-job-id>` link for the draft-ready notification. The
 current router-free portal restores that job in a fresh session, opens Review
 only at `AWAITING_REVIEW / review_ready`, waits honestly for earlier states,
 and converts completed jobs to the existing approved-document view. The link
@@ -89,6 +92,8 @@ PIPELINE_MAIL_PORT=1025
 PIPELINE_MAIL_TIMEOUT_SECONDS=5.0
 PIPELINE_MAIL_USE_STARTTLS=false
 PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS=medpark.test
+PIPELINE_NOTIFICATION_SENDER=secure-mom@medpark.test
+PIPELINE_NOTIFICATION_MAX_ATTEMPTS=2
 ```
 
 The timeout bounds socket connection and SMTP commands. `apps/mailpit` binds
@@ -97,6 +102,13 @@ forwarding behavior is added by this adapter. Malformed or non-allowlisted
 recipients are reported as skipped and do not prevent approval. The sender is
 read from the stored demo submitter and checked server-side; it is never taken
 from the browser request.
+
+Draft-ready mail uses the configured system notification sender and goes only
+to the persisted submitting author. Its body contains the job ID and stable
+local review URL, never transcript or MoM content. The worker persists a
+`sending` claim before SMTP. A failure known to occur before submission can be
+retried within the configured bound; an interrupted or acceptance-uncertain
+attempt becomes terminal `unknown` and is not automatically resent.
 
 ## Documentation
 
@@ -183,8 +195,10 @@ Jobs are stored below `PIPELINE_STORAGE_ROOT/jobs/<job-id>/`. Each contains
 `state.json`, a server-named audio artifact under `input/`, source and `.txt`
 transcription checkpoints under `transcript/`, and an append-only
 `operations.ndjson` history. Review-ready jobs also contain `mom/draft.json` and
-`review/context.json`. Approved jobs also contain `mom/approved.json`; delivery
-attempts add `delivery/result.json`. State and artifact installation are atomic.
+`review/context.json`, plus `notification/intent.json` and, after the worker
+acts, `notification/result.json`. Approved jobs also contain
+`mom/approved.json`; delivery attempts add `delivery/result.json`. State and
+artifact installation are atomic.
 
 ## The local MoM service
 

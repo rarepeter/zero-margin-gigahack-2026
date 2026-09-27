@@ -412,8 +412,9 @@ approval, download, export, and distribution are not silently included.
 
 # Post-MoM review and delivery requirements
 
-Status: stable review link, live demo directory, approval, and final-delivery
-slice implemented; notification remains pending
+Status: stable review link, local demo directory, draft-ready notification,
+approval, and final-delivery slices implemented; live Mailpit/offline inspection
+remains pending
 
 These items extend the workflow from a review-ready MoM through author
 notification, portal review, recipient selection, approval, and local delivery.
@@ -435,29 +436,32 @@ the demonstration machine is disconnected from the internet.
 
 ## Local notification email
 
-- [ ] Define a small notification model containing the recipient, subject,
-  review URL, job ID, and safe non-sensitive message text.
-- [ ] Create the notification only after `mom/draft.json` and
+- [x] Define a small notification intent containing the recipient, generic
+  subject, review URL, job ID, stable Message-ID, and creation time, plus a safe
+  content-free message composer.
+- [x] Create the notification only after `mom/draft.json` and
   `review/context.json` are durably available at `AWAITING_REVIEW /
   review_ready`.
-- [ ] Read the recipient from the server-side persisted submitter metadata; do
+- [x] Read the recipient from the server-side persisted submitter metadata; do
   not expose the email through the browser-facing review-context response.
 - [x] Add a replaceable local mail adapter. Tests use a deterministic recording
   adapter; the demo uses Mailpit through loopback SMTP.
 - [x] Use only the local demonstration mail environment. External SMTP, cloud
   mail APIs, and runtime internet dependencies are prohibited.
-- [ ] Define idempotency so callback replay or process restart does not send
+- [x] Define idempotency so callback replay or process restart does not send
   duplicate notifications.
-- [ ] Define bounded retry and failure behavior without discarding the valid MoM
+- [x] Define bounded retry and failure behavior without discarding the valid MoM
   and review-context artifacts.
-- [ ] Record metadata-only notification events without logging meeting content,
+- [x] Record metadata-only notification events without logging meeting content,
   message bodies, or credentials.
-- [ ] Add automated and offline smoke coverage for message preparation and local
-  delivery.
+- [x] Add automated coverage for composition, callback replay, acceptance,
+  bounded known-failure retry, uncertain outcomes, restart recovery, and
+  concurrent worker invocation.
+- [ ] Run the live Mailpit and Wi-Fi-disabled smoke coverage for local delivery.
 
 ## Recipient selection, approval, and final delivery
 
-- [ ] Provide a local, internally maintained recipient-directory lookup that
+- [x] Provide a local, internally maintained recipient-directory lookup that
   supports surname-based autocomplete; do not use an external directory at
   runtime.
 - [x] Use the existing portal-to-backend approval request to persist the final edited
@@ -547,11 +551,9 @@ is composed, queued, or sent**.
    existing blocking-review rule. Disable repeat submissions while saving.
 3. Submit that snapshot with `recipients: []` to a local approval endpoint. The
    pipeline validates the schema-version-1 document, persists it under the job,
-   and marks the job `COMPLETED`. No mail adapter is invoked.
-   The separate, currently unimplemented ready-for-review notification must
-   stay disabled for this no-email demo. Because recipients are selected only
-   at Export, that earlier notification cannot be controlled by the empty
-   recipient list.
+   and marks the job `COMPLETED`. No final-delivery mail is invoked. The earlier
+   generic draft-ready notification is independent of the recipient list
+   selected at Export and may already have been sent to the submitting author.
 4. Navigate to the completion screen only after approval is confirmed. Show
    **Approved / Ready to download** and **No email sent** rather than **Shared**
    or an internal-email claim. If saving fails, stay on Review, preserve edits,
@@ -636,9 +638,9 @@ audio length is source metadata, not a timing substitute.
   implementation iteration, apply the restart-and-live-verification rule at
   the top of this plan.
 
-Decisions still open: direct PDF generation, notification email, live directory
-integration, and cleanup policy. They do not block approval or final local
-delivery.
+Decisions still open: direct PDF generation, immutable institutional directory
+IDs, production send-as policy, and cleanup policy. They do not block approval
+or final local delivery.
 
 # Mailpit pipeline integration — step 1
 
@@ -718,3 +720,33 @@ modules. A live Mailpit container smoke check could not run on this machine
 because the `docker` executable is not installed; the loopback SMTP boundary is
 therefore verified by the adapter and approval-flow test doubles, not by a live
 container in this increment.
+
+# Mailpit pipeline integration — step 5: draft-ready notification
+
+Status: implemented and automated-tested on 27 September 2026; live Mailpit and
+Wi-Fi-disabled acceptance remain in the P0.3 checklist.
+
+- [x] Added configured `PIPELINE_NOTIFICATION_SENDER` and bounded
+  `PIPELINE_NOTIFICATION_MAX_ATTEMPTS` settings.
+- [x] Persisted a schema-version-1 `notification/intent.json` before publishing
+  `AWAITING_REVIEW / review_ready`, with only author, job ID, generic subject,
+  loopback review URL, deterministic notification-specific Message-ID, and
+  creation time.
+- [x] Made the worker claim notification work by persisting
+  `notification/result.json` with `sending` before SMTP submission. Accepted
+  results and callback replays do not send again.
+- [x] Retry only failures known to happen before SMTP submission, using the
+  same Message-ID and a configured bound. A potentially accepted failure or a
+  restart that finds `sending` becomes terminal `unknown` and is not blindly
+  resent.
+- [x] Kept every notification outcome separate from the primary job status, so
+  the draft remains `AWAITING_REVIEW / review_ready` and directly accessible.
+- [x] Added metadata-only lifecycle events and tests proving notification
+  artifacts, events, and message bodies contain no transcript or MoM content.
+
+Verification output: all 78 pipeline tests passed with one existing
+Starlette TestClient deprecation warning; source compilation and
+`git diff --check` passed. The API and a single worker were restarted from the
+current checkout, the API health endpoint responded, and the portal remained
+available on port 3100. Live SMTP capture remains blocked by the missing Docker
+and Mailpit runtime.

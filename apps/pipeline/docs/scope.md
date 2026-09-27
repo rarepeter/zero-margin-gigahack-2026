@@ -19,7 +19,11 @@ Last updated: 27 September 2026
   UTF-8 plain-text input for the MoM service.
 - Validation and persistence of a draft MoM JSON document.
 - Persistence of compact review-context metadata when the draft becomes ready.
-- A local demo recipient list in the portal, with backend allowlist enforcement.
+- A server-owned local demo directory, with backend recipient allowlist
+  enforcement.
+- Persisted, restart-safe notification of the submitting author through local
+  SMTP when a draft becomes review-ready. The message contains only the job ID
+  and stable loopback review link.
 - Local delivery of the approved MoM to accepted recipients selected by the
   reviewer, using the stored and server-authorized submitter identity.
 - Separate read endpoints for job status, review context, structured transcript,
@@ -43,6 +47,11 @@ optional recipient list. It completes without SMTP when no addresses survive
 soft validation, or only after local SMTP accepts delivery when at least one
 address survives. SMTP failure preserves the immutable approved snapshot for an
 identical-request retry.
+
+The notification outcome is independent of this completion boundary. A known
+pre-submission SMTP failure may retry within a small bound; an interrupted or
+acceptance-uncertain attempt is not automatically resent. In every case the
+valid draft remains `AWAITING_REVIEW / review_ready`.
 
 The frontend may display and edit that draft and may create ODF or DOCX files.
 Those editing and export functions remain frontend responsibilities, while the
@@ -71,8 +80,9 @@ pipeline/backend owns local notification and delivery.
 
 ## Deferred decisions
 
-- Replacing the frontend's static local demo directory with an internal
-  directory service and defining its privacy/authorization policy.
+- Replacing the server-owned local demo directory with an institutional
+  directory service and defining its privacy/authorization policy and stable
+  person identifiers.
 - Replacing the fixed demo submitter authorization check with institutional
   authentication and send-as/delegation policy.
 - Whether the final application is run directly or packaged in containers.

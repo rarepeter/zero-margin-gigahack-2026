@@ -148,6 +148,15 @@ existing job and artifact endpoints and enters Review only for the durable
 `AWAITING_REVIEW / review_ready` checkpoint. The link is intended for the local
 notification flow and is not an authentication or authorization mechanism.
 
+The same callback atomically installs a content-free notification intent before
+publishing `AWAITING_REVIEW / review_ready`. The worker treats that intent as an
+actionable checkpoint, persists a `sending` result before SMTP, and submits a
+generic message from the configured system sender to the persisted author.
+Accepted results are never replayed. Known pre-submission failures have a small
+retry bound; interrupted or potentially accepted submissions recover as
+terminal `unknown` instead of being blindly resent. Notification results do not
+alter the primary review-ready state.
+
 The exact request and result shapes belong to their adapters. The audio service
 must have operating-system permission to read its recording input path. The
 text service does not need access to the pipeline's filesystem.
@@ -186,8 +195,9 @@ atomically renames the complete directory into `jobs/`. The worker scans only
 published job directories.
 
 The worker may have multiple jobs in externally active states. On each pass it
-re-schedules any required audio mock callbacks, advances the oldest actionable
-transcription or text-dispatch checkpoint, or claims the oldest queued job.
+first advances one pending review notification, then re-schedules any required
+audio mock callbacks, advances the oldest actionable transcription or
+text-dispatch checkpoint, or claims the oldest queued job.
 Per-job locks serialize API and worker mutations; an unrelated job waiting in
 `audio_processing` or `GENERATING_MOM` does not occupy a global processing slot.
 

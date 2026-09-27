@@ -40,6 +40,7 @@ from .models import (
     MomFailure,
     MomResult,
     MomReceipt,
+    NotificationIntent,
     ParticipantAssignment,
     ParticipantAssignments,
     ParticipantAssignmentsRequest,
@@ -56,6 +57,7 @@ from .models import (
     TranscriptionReceipt,
     utc_now,
 )
+from .review_notification import build_notification_intent
 
 
 settings = get_settings()
@@ -154,7 +156,7 @@ def _apply_participant_assignments(
     ]
 
 
-def _json_bytes(model: ApprovedMom | DeliveryResult) -> bytes:
+def _json_bytes(model: ApprovedMom | DeliveryResult | NotificationIntent) -> bytes:
     return (
         json.dumps(
             model.model_dump(mode="json", by_alias=True),
@@ -827,6 +829,14 @@ async def receive_mom(
                 mom=mom,
                 completed_at=completed_at,
             )
+            if state_model.submitted_by is None:
+                raise InvalidJobStateError("The submitting author is missing")
+            notification_intent = build_notification_intent(
+                job_id=job_id,
+                recipient=state_model.submitted_by.email,
+                portal_base_url=settings.portal_base_url,
+                created_at=completed_at,
+            )
             review_context_data = (
                 json.dumps(
                     review_context.model_dump(mode="json", by_alias=True),
@@ -849,11 +859,18 @@ async def receive_mom(
                 data=review_context_data,
                 media_type="application/json",
             )
+            notification_descriptor = job_store.write_artifact_at(
+                directory,
+                relative_path="notification/intent.json",
+                data=_json_bytes(notification_intent),
+                media_type="application/json",
+            )
             artifacts = state_model.artifacts.model_copy(
                 update={
                     "mom": descriptor.path,
                     "mom_output": descriptor,
                     "review_context": review_descriptor,
+                    "notification_intent": notification_descriptor,
                 }
             )
             review_state = state_model.model_copy(
@@ -867,6 +884,13 @@ async def receive_mom(
                 }
             )
             job_store.write_state_at(directory, review_state)
+            job_store.append_event_at(
+                directory,
+                job_id=job_id,
+                event_type="notification.intent.created",
+                producer="pipeline-api",
+                value={"messageId": notification_intent.message_id},
+            )
             job_store.append_event_at(
                 directory,
                 job_id=job_id,

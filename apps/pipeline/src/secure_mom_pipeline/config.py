@@ -20,6 +20,13 @@ def _bounded_positive_float_from_env(name: str, fallback: str, maximum: float) -
     return value
 
 
+def _bounded_positive_int_from_env(name: str, fallback: str, maximum: int) -> int:
+    value = int(os.getenv(name, fallback))
+    if not 0 < value <= maximum:
+        raise ValueError(f"{name} must be greater than zero and no greater than {maximum}")
+    return value
+
+
 def _boolean_from_env(name: str, fallback: bool) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -41,6 +48,19 @@ def _domains_from_env(name: str, fallback: str) -> tuple[str, ...]:
     if not domains:
         raise ValueError(f"{name} must contain at least one domain")
     return domains
+
+
+def _email_from_env(name: str, fallback: str) -> str:
+    value = os.getenv(name, fallback).strip()
+    local, separator, domain = value.rpartition("@")
+    if (
+        not separator
+        or not local
+        or not domain
+        or any(character.isspace() for character in value)
+    ):
+        raise ValueError(f"{name} must contain one valid local email address")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +143,12 @@ class Settings:
     )
     mail_allowed_recipient_domains: tuple[str, ...] = _domains_from_env(
         "PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS", "medpark.test"
+    )
+    notification_sender: str = _email_from_env(
+        "PIPELINE_NOTIFICATION_SENDER", "secure-mom@medpark.test"
+    )
+    notification_max_attempts: int = _bounded_positive_int_from_env(
+        "PIPELINE_NOTIFICATION_MAX_ATTEMPTS", "2", 10
     )
 
     # TODO(discovery, TD-026): replace the audio placeholder with its owner's URL.

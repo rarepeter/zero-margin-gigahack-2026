@@ -12,8 +12,13 @@ from secure_mom_pipeline.mail_adapter import (
 
 
 class FakeSmtp:
-    def __init__(self, refused: dict[str, object] | None = None) -> None:
+    def __init__(
+        self,
+        refused: dict[str, object] | None = None,
+        send_error: Exception | None = None,
+    ) -> None:
         self.refused = refused or {}
+        self.send_error = send_error
         self.ehlo_calls = 0
         self.starttls_calls = 0
         self.sent: tuple[EmailMessage, str, list[str]] | None = None
@@ -38,6 +43,8 @@ class FakeSmtp:
         to_addrs: list[str],
     ) -> dict[str, object]:
         self.sent = (message, from_addr, to_addrs)
+        if self.send_error is not None:
+            raise self.send_error
         return self.refused
 
 
@@ -49,6 +56,11 @@ class FakeSmtpFactory:
     def __call__(self, host: str, port: int, timeout: float) -> FakeSmtp:
         self.calls.append((host, port, timeout))
         return self.client
+
+
+class FailingSmtpFactory:
+    def __call__(self, host: str, port: int, timeout: float) -> FakeSmtp:
+        raise ConnectionRefusedError("local SMTP is down")
 
 
 def test_mailpit_adapter_uses_configured_loopback_smtp_without_starttls() -> None:
@@ -129,6 +141,53 @@ def test_adapter_rejects_refused_recipients_without_claiming_delivery() -> None:
         )
 
     assert error.value.retryable is False
+    assert error.value.acceptance_unknown is False
+
+
+def test_adapter_marks_connection_failure_as_known_not_accepted() -> None:
+    adapter = SmtpMailAdapter(
+        host="127.0.0.1",
+        port=1025,
+        timeout_seconds=5.0,
+        use_starttls=False,
+        smtp_factory=FailingSmtpFactory(),
+    )
+
+    with pytest.raises(MailAdapterError) as error:
+        adapter.send(
+            LocalMailMessage(
+                sender="demo@medpark.test",
+                recipients=("reviewer@medpark.test",),
+                subject="Local test",
+                text_body="Safe test content.",
+            )
+        )
+
+    assert error.value.retryable is True
+    assert error.value.acceptance_unknown is False
+
+
+def test_adapter_marks_submission_failure_as_acceptance_unknown() -> None:
+    adapter = SmtpMailAdapter(
+        host="127.0.0.1",
+        port=1025,
+        timeout_seconds=5.0,
+        use_starttls=False,
+        smtp_factory=FakeSmtpFactory(FakeSmtp(send_error=TimeoutError())),
+    )
+
+    with pytest.raises(MailAdapterError) as error:
+        adapter.send(
+            LocalMailMessage(
+                sender="demo@medpark.test",
+                recipients=("reviewer@medpark.test",),
+                subject="Local test",
+                text_body="Safe test content.",
+            )
+        )
+
+    assert error.value.retryable is False
+    assert error.value.acceptance_unknown is True
 
 
 @pytest.mark.parametrize(

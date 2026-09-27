@@ -21,9 +21,16 @@ if TYPE_CHECKING:
 class MailAdapterError(RuntimeError):
     """SMTP submission failure with a safe retry classification."""
 
-    def __init__(self, message: str, *, retryable: bool) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool,
+        acceptance_unknown: bool = False,
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.acceptance_unknown = acceptance_unknown
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +144,7 @@ class SmtpMailAdapter:
 
     def send(self, message: LocalMailMessage) -> MailSubmission:
         email = _build_message(message)
+        submission_started = False
         try:
             with self._smtp_factory(
                 self._host,
@@ -147,6 +155,7 @@ class SmtpMailAdapter:
                 if self._use_starttls:
                     client.starttls(context=ssl.create_default_context())
                     client.ehlo()
+                submission_started = True
                 refused = client.send_message(
                     email,
                     from_addr=message.sender,
@@ -155,7 +164,11 @@ class SmtpMailAdapter:
         except smtplib.SMTPRecipientsRefused as exc:
             raise MailAdapterError("The local SMTP server rejected all recipients.", retryable=False) from exc
         except (OSError, TimeoutError, smtplib.SMTPException) as exc:
-            raise MailAdapterError("The local SMTP submission failed.", retryable=True) from exc
+            raise MailAdapterError(
+                "The local SMTP submission failed.",
+                retryable=not submission_started,
+                acceptance_unknown=submission_started,
+            ) from exc
 
         if refused:
             raise MailAdapterError("The local SMTP server rejected one or more recipients.", retryable=False)

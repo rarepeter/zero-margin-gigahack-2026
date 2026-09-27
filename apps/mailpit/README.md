@@ -10,8 +10,9 @@ relay or forward email to the internet.
 2. **Approved MoM** — sent from the submitting author's authorized address to
    the recipients selected in the review portal.
 
-The Python pipeline is wired to Mailpit-compatible SMTP for the second message.
-The draft-ready notification remains future work.
+The Python pipeline is wired to Mailpit-compatible SMTP for both the generic
+draft-ready notification and approved-MoM delivery. Live Mailpit inspection is
+still pending because Docker is not installed in the current environment.
 
 ## Local-only design
 
@@ -109,23 +110,39 @@ PIPELINE_MAIL_HOST=127.0.0.1
 PIPELINE_MAIL_PORT=1025
 PIPELINE_MAIL_USE_STARTTLS=false
 PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS=medpark.test
+PIPELINE_NOTIFICATION_SENDER=secure-mom@medpark.test
+PIPELINE_NOTIFICATION_MAX_ATTEMPTS=2
 ```
 
 The implementation uses a replaceable local mail adapter and Python's SMTP
 client rather than Mailpit's HTTP API. It has no external relay or forwarding
 configuration.
 
-For every message, the adapter must:
+For draft-ready notification, the pipeline:
 
-- use the server-side submitting-author address as `From` only after local
+- uses the configured system address as `From` and the persisted submitting
+  author as the sole recipient;
+- includes only the job ID and stable loopback review link;
+- persists intent and result metadata and does not automatically resend an
+  acceptance-uncertain submission; and
+- leaves the job at `AWAITING_REVIEW / review_ready` for every notification
+  outcome.
+
+For approved-MoM delivery, the pipeline:
+
+- uses the server-side submitting-author address as `From` only after local
   authorization validates it;
-- softly skip malformed or non-permitted-domain recipients and deliver only to
+- softly skips malformed or non-permitted-domain recipients and delivers only to
   the accepted `@medpark.test` list;
-- use a stable `Message-ID` and persist a metadata-only delivery record to
-  prevent duplicate notification on callback replay;
-- send no full MoM content in the draft-ready notification; and
-- move the job to `COMPLETED` only after local SMTP accepts the approved-MoM
+- uses a stable, notification-distinct `Message-ID` and persists a metadata-only
+  delivery record;
+- moves the job to `COMPLETED` only after local SMTP accepts the approved-MoM
   delivery request.
+
+During live verification, inspect or search the Mailpit UI by the persisted
+`Message-ID`. An `unknown` notification result requires operator inspection;
+do not trigger an automatic resend because SMTP acceptance may already have
+occurred.
 
 Mailpit accepts messages for local inspection; it does not prove that an
 external or production mailbox received them.
@@ -159,8 +176,9 @@ make down
 
 The smoke-test recipient defaults to `demo.recipient@medpark.test`. It is only
 an email header in Mailpit's shared local inbox; Mailpit does not create a real
-user account or send the message outside the Mac. The current portal directory
-is a static demo list; an internal server-owned directory remains later work.
+user account or send the message outside the Mac. The current recipient picker
+uses the pipeline's server-owned local demo directory; institutional directory
+integration remains later work.
 
 Do not commit `.env`, `runtime/`, Mailpit databases, captured email files, or
 attachments. Do not change the image tag during the demo without running the

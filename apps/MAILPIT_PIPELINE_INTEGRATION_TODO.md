@@ -50,14 +50,14 @@ integration, and a production send-as policy remain outside the hackathon MVP.
 - [x] Deterministic structured-text approved-MoM message using the persisted,
   configured demo submitter as `From`.
 - [x] Portal success and failure states driven by the approval API result.
-- [x] Automated baseline: 62 pipeline tests pass; frontend tests, typecheck, and
+- [x] Automated baseline: 78 pipeline tests pass; frontend tests, typecheck, and
   production build pass.
 
 ### Not implemented or not live-verified
 
 - [x] Stable URL implementation that restores an unapproved review-ready job
   from a fresh session. Manual browser acceptance remains below.
-- [ ] Persisted draft-ready notification intent, sending, result, and restart
+- [x] Persisted draft-ready notification intent, sending, result, and restart
   behavior.
 - [ ] Live Mailpit verification, Mailpit downtime/recovery, and a complete
   Wi-Fi-disabled run. Docker is not installed in the current environment.
@@ -130,37 +130,37 @@ Notification creation begins only after `mom/draft.json` and
 
 ### Data and configuration
 
-- [ ] Add a configured system notification sender, defaulting to a clearly
+- [x] Add a configured system notification sender, defaulting to a clearly
   local test identity such as `secure-mom@medpark.test`. Do not send the
   author's notification from the author's own address.
-- [ ] Add schema-versioned `NotificationIntent` and `NotificationResult`
+- [x] Add schema-versioned `NotificationIntent` and `NotificationResult`
   models. The intent contains only job ID, recipient, generic subject, stable
   review URL, stable Message-ID, and creation time. The result contains only
   status, attempt time/count, Message-ID, safe error code, retryability, and
   whether SMTP acceptance is known or uncertain.
-- [ ] Persist them as `notification/intent.json` and
+- [x] Persist them as `notification/intent.json` and
   `notification/result.json`, referenced by optional descriptors in job state.
   Do not persist a transcript excerpt, MoM text, meeting subject, message body,
   or credentials in either artifact.
-- [ ] Use a deterministic Message-ID derived from the job ID and message type,
+- [x] Use a deterministic Message-ID derived from the job ID and message type,
   distinct from the final-delivery Message-ID.
 
 ### Lifecycle
 
-- [ ] In the MoM callback transaction, write the draft, review context, and
+- [x] In the MoM callback transaction, write the draft, review context, and
   notification intent before publishing `AWAITING_REVIEW / review_ready`.
   Callback replay must return the existing checkpoint and never create another
   intent.
-- [ ] Make the pipeline worker own notification submission. Add
+- [x] Make the pipeline worker own notification submission. Add
   `AWAITING_REVIEW / review_ready` jobs with an unsent intent to the worker's
   actionable scan without blocking unrelated jobs.
-- [ ] Compose a generic message such as “Your Secure MOM draft is ready for
+- [x] Compose a generic message such as “Your Secure MOM draft is ready for
   review,” containing only the job ID and local review link. Route it through
   the existing `LocalMailAdapter`.
-- [ ] Keep the job at `AWAITING_REVIEW / review_ready` regardless of
+- [x] Keep the job at `AWAITING_REVIEW / review_ready` regardless of
   notification success or failure. The draft must remain reviewable directly
   from the portal.
-- [ ] Record metadata-only operations for intent creation, attempt start,
+- [x] Record metadata-only operations for intent creation, attempt start,
   acceptance, known failure, and uncertain outcome.
 
 ### Idempotency and recovery policy
@@ -170,29 +170,29 @@ Message-ID helps traceability but does not itself make SMTP exactly-once. The
 implementation must therefore prefer avoiding duplicate notifications and
 must not claim a stronger guarantee than it provides.
 
-- [ ] Atomically claim a pending intent before connecting to SMTP. Normal
+- [x] Atomically claim a pending intent before connecting to SMTP. Normal
   callback replay, worker scans, and restarts after a durable accepted result
   must perform no second submission.
-- [ ] Extend mail errors if necessary to distinguish “known not accepted” from
+- [x] Extend mail errors if necessary to distinguish “known not accepted” from
   “acceptance uncertain.” A connection refusal before submission may be
   retried with the same Message-ID within a small configured attempt limit.
-- [ ] If the process stops during submission, or SMTP may have accepted the
+- [x] If the process stops during submission, or SMTP may have accepted the
   message before the client lost confirmation, persist or reconstruct an
   `unknown` outcome and do not resend automatically. The demo operator may
   inspect Mailpit by Message-ID and explicitly reconcile it.
-- [ ] Do not convert a notification failure into the job's normal `FAILED`
+- [x] Do not convert a notification failure into the job's normal `FAILED`
   state, because processing succeeded and a valid review draft exists.
 
 ### Tests and acceptance
 
-- [ ] Unit-test safe message composition, configured system sender, recipient
+- [x] Unit-test safe message composition, configured system sender, recipient
   source, stable URL, and stable Message-ID.
-- [ ] Pipeline tests cover first send, callback replay, accepted-result
+- [x] Pipeline tests cover first send, callback replay, accepted-result
   restart, known pre-acceptance failure and bounded retry, uncertain outcome,
   and concurrent/duplicate worker invocation.
-- [ ] Tests assert that notification artifacts and events contain no transcript
+- [x] Tests assert that notification artifacts and events contain no transcript
   or MoM content.
-- [ ] Regenerate pipeline OpenAPI only if a public schema changes; notification
+- [x] Regenerate pipeline OpenAPI only if a public schema changes; notification
   artifacts should remain internal unless the UI genuinely needs their state.
 
 ## P0.3 — Live Mailpit and offline end-to-end verification
@@ -297,8 +297,8 @@ the browser-print output: the pipeline cannot read or verify it.
 The existing fixed identity check is appropriate only for the hackathon
 profile.
 
-- [ ] Keep the browser unable to provide `From`.
-- [ ] Document the demo policy explicitly: system sender for draft-ready
+- [x] Keep the browser unable to provide `From`.
+- [x] Document the demo policy explicitly: system sender for draft-ready
   notifications; configured demo submitting author for approved-MoM delivery.
 - [ ] Before institutional deployment, choose authenticated SMTP submission,
   an on-premise relay allowlist, or another locally authorized delegated-send
@@ -312,11 +312,11 @@ profile.
 
 Complete these updates in the same increment as the behavior they describe:
 
-- [ ] Update `apps/mailpit/README.md` with notification configuration,
+- [x] Update `apps/mailpit/README.md` with notification configuration,
   Message-ID inspection, recovery semantics, and the final live commands.
-- [ ] Update pipeline `.env.example`, README, architecture, scope, API spec,
+- [x] Update pipeline `.env.example`, README, architecture, scope, API spec,
   artifact schemas, implementation plan, and technical decision log.
-- [ ] Correct the frontend README and API-alignment documentation: the local
+- [x] Correct the frontend README and API-alignment documentation: the local
   directory endpoint is already implemented and live autocomplete no longer
   uses the browser list as its primary source.
 - [ ] Keep `apps/MAILPIT_RECIPIENT_DELIVERY_PLAN.md` as the implemented
