@@ -11,6 +11,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "fastapi>=0.115,<1",
   "httpx>=0.28,<1",
+  "pyannote-audio>=4,<5",
   "pydantic>=2.10,<3",
   "python-multipart>=0.0.20,<1",
   "uvicorn>=0.34,<1",
@@ -26,6 +27,7 @@ pipeline-api = "secure_mom_pipeline.api:run"
 pipeline-worker = "secure_mom_pipeline.worker:run"
 pipeline-export-openapi = "secure_mom_pipeline.openapi_export:run"
 mom-llm-service = "secure_mom_llm.api:run"
+asr-service = "secure_mom_asr.api:run"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/secure_mom_pipeline", "src/secure_mom_llm"]
+packages = ["src/secure_mom_pipeline", "src/secure_mom_llm", "src/secure_mom_asr"]

@@ -355,7 +355,7 @@ Kafka-shaped envelope:
   "value": {
     "status": "TRANSCRIBING",
     "stage": "audio_processing",
-    "modelJobId": "mock-audio-..."
+    "modelJobId": "asr-..."
   }
 }
 ```

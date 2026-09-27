@@ -18,8 +18,8 @@ from secure_mom_llm.config import get_llm_settings
 from secure_mom_llm.draft import Draft, draft_json_schema
 from secure_mom_llm.jobs import MomJobs
 from secure_mom_llm.llama import Generation, GenerationError
+from doubles import AcceptingAudioService
 from secure_mom_pipeline import api as pipeline_api
-from secure_mom_pipeline.audio_service import MockAudioService
 from secure_mom_pipeline.job_store import JobStore
 from secure_mom_pipeline.models import JobStatus, MomResult, TranscriptionResult
 from secure_mom_pipeline.text_service import HttpTextService
@@ -246,7 +246,7 @@ def test_generated_mom_reaches_review_through_the_real_pipeline(
         text_service = HttpTextService(
             "http://text.local", "/jobs", 1.0, transport=forward_to(service)
         )
-        assert process_one(store, MockAudioService(), logger, text_service)
+        assert process_one(store, AcceptingAudioService(), logger, text_service)
         audio_job = store.read_state(job_id).model_jobs.audio
         assert pipeline.post(
             f"/api/v1/integrations/audio/jobs/{job_id}/transcription",
@@ -254,7 +254,7 @@ def test_generated_mom_reaches_review_through_the_real_pipeline(
             headers={"Content-Type": "application/json", "X-Audio-Model-Job-Id": audio_job},
         ).status_code == 202
 
-        assert process_one(store, MockAudioService(), logger, text_service)
+        assert process_one(store, AcceptingAudioService(), logger, text_service)
         wait_for(lambda: store.read_state(job_id).status == JobStatus.AWAITING_REVIEW)
 
         mom = pipeline.get(f"/api/v1/jobs/{job_id}/mom").json()
@@ -315,14 +315,14 @@ def test_generation_failure_fails_the_pipeline_job(
     with service_client(tmp_path, FakeModel(draft=None), forward_to(pipeline)) as service:
         text_service = HttpTextService("http://text.local", "/jobs", 1.0, transport=forward_to(service))
         logger = logging.getLogger("test.mom-llm-failure")
-        assert process_one(store, MockAudioService(), logger, text_service)
+        assert process_one(store, AcceptingAudioService(), logger, text_service)
         audio_job = store.read_state(job_id).model_jobs.audio
         pipeline.post(
             f"/api/v1/integrations/audio/jobs/{job_id}/transcription",
             content=json.dumps(transcription(job_id)),
             headers={"Content-Type": "application/json", "X-Audio-Model-Job-Id": audio_job},
         )
-        assert process_one(store, MockAudioService(), logger, text_service)
+        assert process_one(store, AcceptingAudioService(), logger, text_service)
         wait_for(lambda: store.read_state(job_id).status == JobStatus.FAILED)
 
     error = pipeline.get(f"/api/v1/jobs/{job_id}").json()["error"]

@@ -34,8 +34,8 @@ boundary module.
 - Validate whether the ML services can later provide reliable word-level
   recommendations or ambiguity annotations. They are not part of the current
   contracts.
-- Replace the current mock audio pickup adapter only after the audio-service
-  contract is agreed.
+- Measure how the speech-to-text service handles Russian passages; the local
+  language detectors mislabel Moldovan Romanian as Slavic (TD-048).
 - `TODO(discovery, TD-032)`: choose polling intervals, timeouts, and the error
   taxonomy after observing the actual services.
 

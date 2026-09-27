@@ -93,13 +93,17 @@ request.
 
 These are internal concepts, not a mandatory REST contract for ML owners.
 
-The current audio submission uses a mock adapter that acknowledges a readable
-absolute local path, returns a generated `mock-audio-...` job ID, and sends a
-deterministic structured transcription to the real pipeline callback after a
-configurable five-second delay. A restarted worker re-schedules the callback for
-a persisted mock job still at `audio_processing`. After the callback, the worker
-persists `transcript/source.json`, extracts its complete `transcript.text` into
-`transcript/transcript.txt`, and uploads that file to the text/MoM service.
+The audio stage is the local speech-to-text service in `src/secure_mom_asr`,
+started separately with `uv run asr-service`. The worker posts the recording's
+absolute path, the result and failure callback URLs, and an `Idempotency-Key`;
+the service returns an `asr-...` job ID at once and transcribes in the
+background with FraPiz and Whisper large-v3 on whisper.cpp `whisper-server`
+children. Like the MoM service, it persists each accepted job, resumes
+unfinished work after a restart, and pushes either the schema-version-1
+transcription or a safe error to the audio failure callback. After the
+transcription callback, the worker persists `transcript/source.json`, extracts
+its complete `transcript.text` into `transcript/transcript.txt`, and uploads
+that file to the text/MoM service.
 
 The text/MoM stage is the local MoM service in `src/secure_mom_llm`, started
 separately with `uv run mom-llm-service`. It runs Muse Glimmer 30B (Q4_K_M
@@ -113,15 +117,6 @@ the job to `FAILED` instead of leaving it waiting.
 Both services behave asynchronously: submission acknowledges work without
 holding the request open for inference, and each service pushes completion to a
 correlated pipeline callback.
-
-For reliable local development, the embedded audio mock routes its delayed request
-through the same FastAPI callback handlers using an in-process ASGI transport by
-default. This exercises request validation, correlation, persistence, and state
-transitions without requiring a TCP connection between the worker and API
-process. An optional HTTP mock transport exercises real loopback networking.
-This development transport choice does not change the real-service boundary:
-independently started ML services deliver their results to the documented HTTP
-callback endpoints.
 
 ## Artifact movement
 
@@ -195,9 +190,9 @@ atomically renames the complete directory into `jobs/`. The worker scans only
 published job directories.
 
 The worker may have multiple jobs in externally active states. On each pass it
-first advances one pending review notification, then re-schedules any required
-audio mock callbacks, advances the oldest actionable transcription or
-text-dispatch checkpoint, or claims the oldest queued job.
+first advances one pending review notification, then advances the oldest
+actionable transcription or text-dispatch checkpoint, or claims the oldest
+queued job.
 Per-job locks serialize API and worker mutations; an unrelated job waiting in
 `audio_processing` or `GENERATING_MOM` does not occupy a global processing slot.
 

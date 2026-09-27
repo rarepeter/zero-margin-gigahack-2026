@@ -12,8 +12,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Protocol
 
-from .audio_service import AudioSubmissionError, MockAudioService
-from .callback_transport import CallbackSender, make_in_process_callback_sender
+from .audio_service import (
+    AudioConnectionError,
+    AudioSubmissionError,
+    HttpAudioService,
+)
 from .config import get_settings
 from .intermediate_transformer import (
     IntermediateTransformationError,
@@ -46,7 +49,9 @@ from .text_service import (
 
 
 class AudioService(Protocol):
-    def submit(self, pipeline_job_id: str, audio_path: Path) -> AudioSubmission: ...
+    def submit(
+        self, pipeline_job_id: str, audio_path: Path, idempotency_key: str
+    ) -> AudioSubmission: ...
 
 
 class TextService(Protocol):
@@ -285,6 +290,8 @@ def _resolve_audio_path(store: JobStore, job_id: str, relative_path: str) -> Pat
     audio_path = (job_directory / candidate_path).resolve()
     if not audio_path.is_relative_to(job_directory):
         raise AudioSubmissionError("The persisted audio path escapes its job")
+    if not audio_path.is_file():
+        raise AudioSubmissionError("The persisted audio is missing")
     return audio_path
 
 
@@ -356,10 +363,33 @@ def _dispatch_audio(
             next_attempt,
         )
 
+        failure: Exception | None = None
+        submission: AudioSubmission | None = None
         try:
             audio_path = _resolve_audio_path(store, job_id, state.artifacts.audio)
-            submission = audio_service.submit(job_id, audio_path)
-        except (AudioSubmissionError, OSError, ValueError):
+        except (AudioSubmissionError, OSError, ValueError) as exc:
+            failure = exc
+        else:
+            idempotency_key = f"{job_id}:transcription:{next_attempt}"
+            for transport_attempt in (1, 2):
+                try:
+                    submission = audio_service.submit(job_id, audio_path, idempotency_key)
+                    break
+                except AudioConnectionError as exc:
+                    failure = exc
+                    if transport_attempt == 1:
+                        store.append_event(
+                            job_id,
+                            event_type="audio.dispatch.retried",
+                            producer="pipeline-worker",
+                            value={"attempt": next_attempt, "retry": 1},
+                        )
+                except (AudioSubmissionError, OSError, ValueError) as exc:
+                    failure = exc
+                    break
+
+        if submission is None:
+            retryable = not isinstance(failure, AudioSubmissionError) or failure.retryable
             failed_state = state.model_copy(
                 update={
                     "attempts": JobAttempts(
@@ -374,12 +404,12 @@ def _dispatch_audio(
                 stage="audio_dispatch",
                 code="AUDIO_DISPATCH_FAILED",
                 message="The audio service could not pick up the recording.",
-                retryable=True,
+                retryable=retryable,
                 event_type="audio.dispatch.failed",
                 event_value={
                     "attempt": next_attempt,
                     "errorCode": "AUDIO_DISPATCH_FAILED",
-                    "retryable": True,
+                    "retryable": retryable,
                 },
             )
             logger.error(
@@ -744,15 +774,6 @@ def process_one(
                     return True
 
         for state in states:
-            if (
-                state.status == JobStatus.TRANSCRIBING
-                and state.stage == "audio_processing"
-            ):
-                ensure_callback = getattr(audio_service, "ensure_callback", None)
-                if callable(ensure_callback) and state.model_jobs.audio is not None:
-                    ensure_callback(state.job_id, state.model_jobs.audio)
-
-        for state in states:
             if state.status != JobStatus.TRANSCRIBING:
                 continue
             if state.stage == "transcription_received":
@@ -788,27 +809,14 @@ def run() -> None:
     settings = get_settings()
     logger = configure_logging(settings.log_file)
     store = JobStore(settings.storage_root)
-    callback_sender: CallbackSender | None
-    if settings.mock_callback_transport == "in_process":
-        # Import lazily so worker unit tests and adapter modules remain
-        # independent from the FastAPI control surface.
-        from .api import app
-
-        callback_sender = make_in_process_callback_sender(app)
-    elif settings.mock_callback_transport == "http":
-        callback_sender = None
-    else:
-        raise ValueError(
-            "PIPELINE_MOCK_CALLBACK_TRANSPORT must be 'in_process' or 'http'"
-        )
-    callback_url_template = (
-        f"{settings.mock_audio_callback_base_url.rstrip('/')}"
-        f"{settings.api_prefix}{settings.routes.transcription_result}"
-    )
-    audio_service = MockAudioService(
-        callback_url_template=callback_url_template,
-        callback_delay_seconds=settings.mock_audio_callback_delay_seconds,
-        callback_sender=callback_sender,
+    # The speech-to-text service pushes its outcome back to this API.
+    callback_base = f"{settings.audio_callback_base_url.rstrip('/')}{settings.api_prefix}"
+    audio_service = HttpAudioService(
+        settings.audio_service_url,
+        settings.audio_service_jobs_route,
+        settings.audio_service_timeout_seconds,
+        callback_url=f"{callback_base}{settings.routes.transcription_result}",
+        failure_url=f"{callback_base}{settings.routes.transcription_failure}",
     )
     text_service = HttpTextService(
         settings.text_service_url,
@@ -842,7 +850,7 @@ def run() -> None:
             settings.notification_sender,
             settings.notification_max_attempts,
         )
-        time.sleep(settings.mock_worker_interval_seconds)
+        time.sleep(settings.worker_interval_seconds)
 
 
 if __name__ == "__main__":

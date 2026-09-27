@@ -186,6 +186,16 @@ class EventRecord(PipelineModel):
     value: dict[str, Any]
 
 
+class AudioJobRequest(ContractModel):
+    """What the pipeline sends to the speech-to-text service for one recording."""
+
+    pipeline_job_id: str = Field(alias="pipelineJobId", min_length=1)
+    # Absolute path to the recording the pipeline persisted on this machine.
+    audio_path: str = Field(alias="audioPath", min_length=1)
+    callback_url: str = Field(alias="callbackUrl", min_length=1)
+    failure_url: str = Field(alias="failureUrl", min_length=1)
+
+
 class AudioSubmission(PipelineModel):
     model_job_id: str = Field(alias="modelJobId", min_length=1)
     status: Literal["accepted"]
@@ -623,10 +633,10 @@ class TranscriptionReceipt(PipelineModel):
 
 
 class MomFailure(ContractModel):
-    """Reported by the text service when it cannot produce a draft MoM.
+    """Reported by an ML service when it cannot produce its artifact.
 
-    The message is shown to the portal user, so it must not contain meeting
-    content.
+    The speech-to-text and MoM services both send this body. The message is
+    shown to the portal user, so it must not contain meeting content.
     """
 
     code: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$", max_length=64)
