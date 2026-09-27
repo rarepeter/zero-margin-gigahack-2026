@@ -9,6 +9,9 @@ export type TranscriptionResult = S['TranscriptionResult'];
 export type MomResult = S['MomResult'];
 export type ReviewContextResponse = S['ReviewContextResponse'];
 export type ApprovedMom = S['ApprovedMom'];
+export type DeliveryReceipt = S['DeliveryReceipt'];
+/** Language of the emailed PDF labels and message text. */
+export type DocumentLanguage = NonNullable<S['DeliveryRequest']['language']>;
 export type DirectoryPerson = S['DirectoryPerson'];
 export type ParticipantAssignment = S['ParticipantAssignment'];
 export type ParticipantAssignments = S['ParticipantAssignments'];
@@ -43,9 +46,11 @@ export interface SecureMomApi {
   retryJob(jobId: string): Promise<unknown>;
   /** GET /health — drives the "Local server: Online" indicator. */
   health(): Promise<boolean>;
-  /** Persist the final reviewed document and deliver locally when recipients remain after server filtering. */
-  approveMom(jobId: string, mom: unknown, recipients: string[]): Promise<ApprovedMom>;
+  /** Persist the final reviewed document and email it as a PDF when recipients remain after server filtering. */
+  approveMom(jobId: string, mom: unknown, recipients: string[], language: DocumentLanguage): Promise<ApprovedMom>;
   getApprovedMom(jobId: string): Promise<ApprovedMom>;
+  /** POST /api/v1/jobs/{id}/deliveries — email the approved MoM as a PDF to more people; repeatable. */
+  deliverMom(jobId: string, recipients: string[], language: DocumentLanguage): Promise<DeliveryReceipt>;
   /** GET /api/v1/directory?q= — local, server-owned autocomplete data. */
   searchDirectory(query: string): Promise<DirectoryPerson[]>;
   /** PUT /api/v1/jobs/{id}/participants — persist diarized speaker names. */

@@ -6,6 +6,7 @@ import pytest
 
 from secure_mom_pipeline.mail_adapter import (
     LocalMailMessage,
+    MailAttachment,
     MailAdapterError,
     SmtpMailAdapter,
 )
@@ -96,6 +97,35 @@ def test_mailpit_adapter_uses_configured_loopback_smtp_without_starttls() -> Non
     assert message.get_body(preferencelist=("plain",)).get_content().strip() == "Review the local draft."
     assert receipt.message_id == "<job-123@secure-mom.local>"
     assert receipt.recipient_count == 1
+
+
+def test_adapter_attaches_files_next_to_the_text_body() -> None:
+    client = FakeSmtp()
+    adapter = SmtpMailAdapter(
+        host="127.0.0.1",
+        port=1025,
+        timeout_seconds=5.0,
+        use_starttls=False,
+        smtp_factory=FakeSmtpFactory(client),
+    )
+
+    adapter.send(
+        LocalMailMessage(
+            sender="demo@medpark.test",
+            recipients=("reviewer@medpark.test",),
+            subject="Secure MOM — minutes",
+            text_body="The minutes are attached.",
+            attachments=(MailAttachment(filename="minutes.pdf", content=b"%PDF-1.4"),),
+        )
+    )
+
+    assert client.sent is not None
+    message = client.sent[0]
+    assert message.get_body(preferencelist=("plain",)).get_content().strip() == "The minutes are attached."
+    [attachment] = list(message.iter_attachments())
+    assert attachment.get_content_type() == "application/pdf"
+    assert attachment.get_filename() == "minutes.pdf"
+    assert attachment.get_content() == b"%PDF-1.4"
 
 
 def test_adapter_can_enable_starttls_when_configured_for_a_future_local_server() -> None:

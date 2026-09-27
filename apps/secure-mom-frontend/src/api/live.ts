@@ -2,6 +2,7 @@ import {
   ApiError,
   type ApprovedMom,
   type CreateJobResponse,
+  type DeliveryReceipt,
   type JobStatusResponse,
   type MomResult,
   type ReviewContextResponse,
@@ -59,12 +60,19 @@ export const liveApi: SecureMomApi = {
       return false;
     }
   },
-  async approveMom(jobId, mom, recipients) {
+  async approveMom(jobId, mom, recipients, language) {
     return (await req(`/api/v1/jobs/${enc(jobId)}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ schemaVersion: 1, document: mom, recipients }),
+      body: JSON.stringify({ schemaVersion: 1, document: mom, recipients, language }),
     })).json() as Promise<ApprovedMom>;
+  },
+  async deliverMom(jobId, recipients, language) {
+    return (await req(`/api/v1/jobs/${enc(jobId)}/deliveries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schemaVersion: 1, recipients, language }),
+    })).json() as Promise<DeliveryReceipt>;
   },
   async getApprovedMom(jobId) {
     return (await req(`/api/v1/jobs/${enc(jobId)}/approved-mom`)).json() as Promise<ApprovedMom>;

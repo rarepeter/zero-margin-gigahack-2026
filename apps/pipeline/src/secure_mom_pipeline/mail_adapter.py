@@ -34,6 +34,15 @@ class MailAdapterError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class MailAttachment:
+    """One file attached to a message, e.g. the approved MoM as PDF."""
+
+    filename: str
+    content: bytes
+    mime_type: str = "application/pdf"
+
+
+@dataclass(frozen=True, slots=True)
 class LocalMailMessage:
     """A fully formed message supplied by a notification or delivery flow."""
 
@@ -43,6 +52,7 @@ class LocalMailMessage:
     text_body: str
     message_id: str | None = None
     html_body: str | None = None
+    attachments: tuple[MailAttachment, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +116,14 @@ def _build_message(message: LocalMailMessage) -> EmailMessage:
     email.set_content(message.text_body)
     if message.html_body is not None:
         email.add_alternative(message.html_body, subtype="html")
+    for attachment in message.attachments:
+        maintype, _, subtype = attachment.mime_type.partition("/")
+        email.add_attachment(
+            attachment.content,
+            maintype=maintype,
+            subtype=subtype,
+            filename=_validate_header(attachment.filename, "attachment filename"),
+        )
     return email
 
 

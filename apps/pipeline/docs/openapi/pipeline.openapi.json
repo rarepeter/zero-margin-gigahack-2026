@@ -7,6 +7,16 @@
           "document": {
             "$ref": "#/components/schemas/MomDocument"
           },
+          "language": {
+            "default": "ro",
+            "enum": [
+              "ro",
+              "ru",
+              "en"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
           "recipients": {
             "items": {
               "type": "string"
@@ -183,6 +193,89 @@
           "createdAt"
         ],
         "title": "CreateJobResponse",
+        "type": "object"
+      },
+      "DeliveryReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "attemptedAt": {
+            "format": "date-time",
+            "title": "Attemptedat",
+            "type": "string"
+          },
+          "jobId": {
+            "title": "Jobid",
+            "type": "string"
+          },
+          "messageId": {
+            "minLength": 1,
+            "title": "Messageid",
+            "type": "string"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recipients",
+            "type": "array"
+          },
+          "schemaVersion": {
+            "const": 1,
+            "title": "Schemaversion",
+            "type": "integer"
+          },
+          "skippedRecipients": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skippedrecipients",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "jobId",
+          "messageId",
+          "attemptedAt",
+          "recipients",
+          "skippedRecipients"
+        ],
+        "title": "DeliveryReceipt",
+        "type": "object"
+      },
+      "DeliveryRequest": {
+        "additionalProperties": false,
+        "description": "Send an already approved MoM to more recipients as a PDF attachment.",
+        "properties": {
+          "language": {
+            "default": "ro",
+            "enum": [
+              "ro",
+              "ru",
+              "en"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Recipients",
+            "type": "array"
+          },
+          "schemaVersion": {
+            "const": 1,
+            "title": "Schemaversion",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "recipients"
+        ],
+        "title": "DeliveryRequest",
         "type": "object"
       },
       "DetectedLanguage": {
@@ -2673,6 +2766,96 @@
           }
         },
         "summary": "Read the persisted approved MoM"
+      }
+    },
+    "/api/v1/jobs/{job_id}/deliveries": {
+      "post": {
+        "description": "Repeatable after approval; each call sends one new message and changes no job state.",
+        "operationId": "deliver_approved_mom_api_v1_jobs__job_id__deliveries_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "summary": "Email an approved MoM as a PDF attachment to more local recipients"
       }
     },
     "/api/v1/jobs/{job_id}/mom": {

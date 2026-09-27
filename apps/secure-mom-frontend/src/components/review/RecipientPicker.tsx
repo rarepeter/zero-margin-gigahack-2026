@@ -8,15 +8,22 @@ import { Icon } from '../ui/Icon';
 const INTERNAL = new RegExp(`^[^@\\s]+${INTERNAL_DOMAIN.replace('.', '\\.')}$`, 'i');
 const EMAIL = /^[a-z0-9][a-z0-9._%+\-]*@[a-z0-9][a-z0-9.\-]*$/i;
 
+interface Props {
+  recipients: Person[];
+  onChange(recipients: Person[]): void;
+  disabled?: boolean;
+  /** Defaults to "Will be shared with". */
+  label?: string;
+}
+
 /** "Will be shared with: (avatars) N participants + Add" → popover with chips, directory search, internal-only emails. */
-export function RecipientPicker() {
-  const { s, l, setRecipients } = useApp();
+export function RecipientPicker({ recipients: list, onChange, disabled = false, label }: Props) {
+  const { l } = useApp();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [directory, setDirectory] = useState<Person[]>([]);
   const box = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const list = s.recipients;
   const n = list.length;
 
   useEffect(() => {
@@ -41,21 +48,21 @@ export function RecipientPicker() {
   const matches = directory.filter((p) => !have.has(p.email)).slice(0, 4);
   const mailOk = EMAIL.test(needle) && !have.has(needle);
 
-  const add = (p: Person) => { if (!s.approvalLocked) { setRecipients([...list, p]); setQ(''); input.current?.focus(); } };
-  const remove = (i: number) => { if (!s.approvalLocked) setRecipients(list.filter((_, k) => k !== i)); };
+  const add = (p: Person) => { if (!disabled) { onChange([...list, p]); setQ(''); input.current?.focus(); } };
+  const remove = (i: number) => { if (!disabled) onChange(list.filter((_, k) => k !== i)); };
   const first = () => (matches[0] ? add(matches[0]) : mailOk && add({ name: needle.split('@')[0], email: needle }));
 
   return (
     <div className="rcp" ref={box}>
-      <span className="rcl">{l.to}:</span>
-      <button type="button" className="rcbtn" aria-expanded={open} disabled={s.approvalLocked} onClick={() => setOpen((o) => !o)}>
+      <span className="rcl">{label ?? l.to}:</span>
+      <button type="button" className="rcbtn" aria-expanded={open} disabled={disabled} onClick={() => setOpen((o) => !o)}>
         {list.slice(0, 4).map((p) => <span key={p.email} className="av xs">{initials(p.name)}</span>)}
         {n > 4 && <span className="av xs more">+{n - 4}</span>}
         <b>{l.rc_n(n)}</b>
         <span className="rcadd">＋ {l.rc_add}</span>
       </button>
       {open && (
-        <div className="rcpop" role="dialog" aria-label={l.to} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
+        <div className="rcpop" role="dialog" aria-label={label ?? l.to} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
           <div className="rcchips">
             {list.map((p, i) => (
               <span key={p.email} className="rchip" title={p.email}>

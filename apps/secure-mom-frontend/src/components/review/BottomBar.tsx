@@ -19,7 +19,7 @@ function DiscardConfirm({ onCancel }: { onCancel: () => void }) {
 
 /** Fixed bottom bar: recipients, Discard, and approval/export controls. */
 export function BottomBar() {
-  const { s, l, exportMom } = useApp();
+  const { s, l, exportMom, setRecipients } = useApp();
   const editing = s.reviewEditing || s.participantEditing;
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -29,7 +29,7 @@ export function BottomBar() {
   }
   return (
     <div className="bar2">
-      <div className="to">{editing ? l.ed_save : <RecipientPicker />}</div>
+      <div className="to">{editing ? l.ed_save : <RecipientPicker recipients={s.recipients} onChange={setRecipients} disabled={s.approvalLocked} />}</div>
       <button ref={discardBtn} className="btn btn-ghost" type="button" onClick={() => setConfirm(true)}>{l.discard}</button>
       <button
         className="btn btn-export"

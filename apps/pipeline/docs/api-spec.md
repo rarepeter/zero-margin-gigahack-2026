@@ -196,13 +196,16 @@ their speaker lists.
 
 ### `POST /api/v1/jobs/{jobId}/approve`
 
-Accept `{ "schemaVersion": 1, "document": <edited MoM>, "recipients": [...] }`
-while the job is `AWAITING_REVIEW`. The same endpoint covers both outcomes:
+Accept `{ "schemaVersion": 1, "document": <edited MoM>, "recipients": [...],
+"language": "ro" }` while the job is `AWAITING_REVIEW`. `language` (`ro`, `ru`,
+`en`; default `ro`) selects the labels of the emailed PDF. The same endpoint covers both outcomes:
 
 - after normalization, an empty accepted-recipient list persists
   `mom/approved.json` and completes at `COMPLETED / approved` without SMTP;
 - one or more accepted recipients persist the same immutable approval and then
-  deliver its composed message through the configured local SMTP adapter. The
+  deliver it as a PDF attachment through the configured local SMTP adapter; the
+  email body is a short note with no MoM content. The PDF is rendered before
+  anything is persisted, so a rendering failure leaves the job reviewable. The
   job reaches `COMPLETED / delivered` only after SMTP accepts the message.
 
 Recipient values that are malformed or outside
@@ -217,9 +220,20 @@ An identical retry returns the same completed approval without sending a
 duplicate message. If local SMTP fails, `mom/approved.json` is preserved,
 `delivery/result.json` records safe failure metadata, and the job becomes
 `FAILED / delivery_failed`; repeating the identical approval request retries
-delivery. A different document or recipient selection conflicts. This is the
-only approval/delivery endpoint; there is no compatibility endpoint or legacy
-approved-artifact reader.
+delivery. A different document or recipient selection conflicts. There is no
+compatibility endpoint or legacy approved-artifact reader.
+
+### `POST /api/v1/jobs/{jobId}/deliveries`
+
+Accept `{ "schemaVersion": 1, "recipients": [...], "language": "ro" }` once the
+job is `COMPLETED` with an approved MoM. Sends the approved document as a PDF
+attachment to the accepted recipients in one new message and returns
+`{ jobId, messageId, attemptedAt, recipients, skippedRecipients }`. Recipients
+are filtered exactly like approval; if none remain the request fails with
+`422 NO_ALLOWED_RECIPIENTS`. Repeatable: each call is a separate message, job
+state is unchanged, and `delivery.followup_accepted` or
+`delivery.followup_failed` is appended to the operation log. SMTP failure
+returns `502 LOCAL_SMTP_FAILED`.
 
 ### `GET /api/v1/jobs/{jobId}/approved-mom`
 

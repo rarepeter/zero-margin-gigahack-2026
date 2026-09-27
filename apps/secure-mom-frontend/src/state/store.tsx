@@ -63,6 +63,7 @@ type Act =
   | { type: 'recipients'; recipients: Person[] }
   | { type: 'participantNames'; assignments: ParticipantAssignment[] }
   | { type: 'done'; outcome: Outcome; exported: Mom | null; deliveredRecipientCount?: number; clickedAt?: number }
+  | { type: 'delivered'; count: number }
   | { type: 'restored'; jobId: string; exported: Mom; reviewContext: ReviewContextResponse | null; elapsedSecs: number; deliveredRecipientCount: number }
   | { type: 'toast'; msg: string | null }
   | { type: 'reset' };
@@ -101,6 +102,7 @@ function reducer(s: State, a: Act): State {
       };
     }
     case 'done': return { ...s, screen: 'done', outcome: a.outcome, exported: a.exported, deliveredRecipientCount: a.deliveredRecipientCount ?? 0, portalSecs: a.clickedAt ? Math.max(0, Math.round((a.clickedAt - s.portalOpenedAt) / 1000)) : 0 };
+    case 'delivered': return { ...s, outcome: 'sent', deliveredRecipientCount: s.deliveredRecipientCount + a.count };
     case 'restored': return { ...s, screen: 'done', jobId: a.jobId, outcome: a.deliveredRecipientCount ? 'sent' : 'download', exported: a.exported, reviewContext: a.reviewContext, deliveredRecipientCount: a.deliveredRecipientCount, portalSecs: a.elapsedSecs };
     case 'toast': return { ...s, toast: a.msg };
     case 'reset': return { ...initial(s.lang, Date.now()), serverOnline: s.serverOnline };
@@ -151,6 +153,8 @@ interface Ctx {
   setRecipients(p: Person[]): void;
   saveParticipantNames(assignments: ParticipantAssignment[]): Promise<void>;
   exportMom(): Promise<void>;
+  /** Email the approved MoM PDF to more people from the Done screen; resolves true when sent. */
+  sendApproved(recipients: Person[]): Promise<boolean>;
   discard(): Promise<void>;
   newMeeting(): void;
   toast(msg: string): void;
@@ -320,7 +324,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!s.jobId || !view || s.reviewEditing || s.participantEditing) return;
       const clickedAt = Date.now();
       try {
-        const approved = await api.approveMom(s.jobId, view, s.recipients.map((p) => p.email));
+        const approved = await api.approveMom(s.jobId, view, s.recipients.map((p) => p.email), s.lang);
         const elapsedSecs = Math.max(0, Math.round((clickedAt - s.portalOpenedAt) / 1000));
         try {
           sessionStorage.setItem(`smom-elapsed-${s.jobId}`, String(elapsedSecs));
@@ -331,6 +335,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         if (e instanceof ApiError && e.code === 'LOCAL_SMTP_FAILED') dispatch({ type: 'approvalLocked' });
         toast(e instanceof Error ? e.message : 'Approval failed. Please try again.');
+      }
+    },
+    async sendApproved(recipients) {
+      if (!s.jobId || !recipients.length) return false;
+      try {
+        const receipt = await api.deliverMom(s.jobId, recipients.map((p) => p.email), s.lang);
+        dispatch({ type: 'delivered', count: receipt.recipients.length });
+        toast(receipt.skippedRecipients.length ? l.rc_skipped(receipt.skippedRecipients.length) : l.send_ok(receipt.recipients.length));
+        return true;
+      } catch (e) {
+        toast(e instanceof Error ? e.message : l.send_error);
+        return false;
       }
     },
     async discard() {

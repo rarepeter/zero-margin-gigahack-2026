@@ -1,6 +1,32 @@
+import { useState } from 'react';
+import { RecipientPicker } from '../components/review/RecipientPicker';
 import { Icon } from '../components/ui/Icon';
+import type { Person } from '../data/directory';
 import { printPdf } from '../lib/exportDoc';
 import { useApp } from '../state/store';
+
+/** After approval: pick more people and email them the approved MoM as a PDF. Repeatable. */
+function SendMore() {
+  const { l, sendApproved } = useApp();
+  const [recipients, setRecipients] = useState<Person[]>([]);
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    setBusy(true);
+    try {
+      if (await sendApproved(recipients)) setRecipients([]);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="send-more">
+      <div className="to"><RecipientPicker recipients={recipients} onChange={setRecipients} disabled={busy} label={l.send_to} /></div>
+      <button className="btn btn-secondary" type="button" disabled={!recipients.length || busy} onClick={send}>
+        <Icon name="send" />{busy ? l.send_busy : l.send_pdf}
+      </button>
+    </div>
+  );
+}
 
 const mm = (sec: number) => `${Math.floor(sec / 60)} min ${String(sec % 60).padStart(2, '0')} s`;
 
@@ -33,6 +59,7 @@ export function DoneScreen() {
       <div className="row">
         <button className="btn btn-primary" type="button" onClick={() => printPdf(mom, l, s.lang)}><Icon name="down" />{l.pdf}</button>
       </div>
+      <SendMore />
       <div className="saved">
         <div><div className="k">{l.your}</div><div className="big">~{savedMinutes} min</div><div className="k">{l.vs(mm(s.portalSecs))}</div></div>
         <div><div className="k">{l.proc}</div><div className="big">{proc !== null ? mm(proc) : '—'}</div><div className="k">{l.proc_note}</div></div>

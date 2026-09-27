@@ -344,6 +344,8 @@ MeetingType = Literal[
 FlagType = Literal["number", "decision_status", "owner", "deadline", "term"]
 MeetingTypeConfidence = Literal["high", "medium", "low"]
 DecisionStatus = Literal["decided", "proposed", "revoked"]
+# Language of the portal UI; selects the labels of the emailed PDF and message.
+DocumentLanguage = Literal["ro", "ru", "en"]
 RiskCategory = Literal[
     "clinical", "safety", "technical", "regulatory", "data_quality", "operational"
 ]
@@ -467,6 +469,7 @@ class ApprovalRequest(ContractModel):
     schema_version: Literal[1] = Field(alias="schemaVersion")
     document: MomDocument
     recipients: list[str]
+    language: DocumentLanguage = "ro"
 
 
 class ApprovedMom(ContractModel):
@@ -486,6 +489,23 @@ class DeliveryResult(ContractModel):
     attempted_at: datetime = Field(alias="attemptedAt")
     recipient_count: int = Field(alias="recipientCount", ge=1)
     error_code: str | None = Field(default=None, alias="errorCode")
+
+
+class DeliveryRequest(ContractModel):
+    """Send an already approved MoM to more recipients as a PDF attachment."""
+
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    recipients: list[str] = Field(min_length=1)
+    language: DocumentLanguage = "ro"
+
+
+class DeliveryReceipt(ContractModel):
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    job_id: str = Field(alias="jobId")
+    message_id: str = Field(alias="messageId", min_length=1)
+    attempted_at: datetime = Field(alias="attemptedAt")
+    recipients: list[str]
+    skipped_recipients: list[str] = Field(alias="skippedRecipients")
 
 
 class NotificationIntent(ContractModel):

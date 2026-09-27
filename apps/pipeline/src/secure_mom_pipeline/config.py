@@ -84,6 +84,9 @@ class ApiRoutes:
     approved_mom: str = os.getenv(
         "PIPELINE_APPROVED_MOM_ROUTE", "/jobs/{job_id}/approved-mom"
     )
+    deliveries: str = os.getenv(
+        "PIPELINE_DELIVERIES_ROUTE", "/jobs/{job_id}/deliveries"
+    )
     retry: str = os.getenv("PIPELINE_RETRY_ROUTE", "/jobs/{job_id}/retry")
     transcription_result: str = os.getenv(
         "PIPELINE_TRANSCRIPTION_RESULT_ROUTE",
@@ -153,6 +156,15 @@ class Settings:
     )
     notification_max_attempts: int = _bounded_positive_int_from_env(
         "PIPELINE_NOTIFICATION_MAX_ATTEMPTS", "2", 10
+    )
+    # Unicode TrueType fonts for the emailed MoM PDF. They must cover Romanian
+    # diacritics and Cyrillic; the defaults ship with macOS.
+    pdf_font_path: Path = _path_from_env(
+        "PIPELINE_PDF_FONT_PATH", "/System/Library/Fonts/Supplemental/Arial.ttf"
+    )
+    pdf_bold_font_path: Path = _path_from_env(
+        "PIPELINE_PDF_BOLD_FONT_PATH",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     )
 
     # Both URLs point at local services in this package: speech-to-text
