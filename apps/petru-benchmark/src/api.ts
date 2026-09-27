@@ -10,3 +10,4 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 export const date = (value: string) => new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+export const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;

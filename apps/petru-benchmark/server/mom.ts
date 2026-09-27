@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { createHash } from 'node:crypto';
 import { HttpError, json } from './http';
+import { Semaphore } from './semaphore';
 import { generateMom, MOM_REASONING_EFFORT, buildMomRequest, redact, UpstreamError } from './openrouter';
 import { loadTranscripts, summarize } from './mom-data';
 import { JUDGE_EFFORT, type Judge } from './judge';
@@ -94,19 +95,6 @@ export class MomStore {
   // Marks failed and interrupted cells for another attempt. Completed minutes and grades are kept.
   resetFailed(runId: string) {
     return this.db.run("UPDATE mom_cells SET status = 'queued' WHERE run_id = ? AND status IN ('failed', 'interrupted')", [runId]).changes;
-  }
-}
-
-// A FIFO slot limiter. A released slot passes straight to the next waiter.
-class Semaphore {
-  private active = 0;
-  private waiting: (() => void)[] = [];
-  constructor(private limit: number) {}
-  async run<T>(task: () => Promise<T>) {
-    if (this.active < this.limit) this.active++;
-    else await new Promise<void>(resolve => this.waiting.push(resolve));
-    try { return await task(); }
-    finally { const next = this.waiting.shift(); if (next) next(); else this.active--; }
   }
 }
 

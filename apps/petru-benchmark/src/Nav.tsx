@@ -1,12 +1,17 @@
-import { AudioLines, FileText } from 'lucide-react';
+import { AudioLines, FileText, Target } from 'lucide-react';
 
-export type Tab = 'asr' | 'mom';
-export const tabFromHash = (): Tab => (location.hash.startsWith('#/mom') ? 'mom' : 'asr');
+export type Tab = 'asr' | 'accuracy' | 'mom';
+export const tabFromHash = (): Tab => location.hash.startsWith('#/mom') ? 'mom' : location.hash.startsWith('#/accuracy') ? 'accuracy' : 'asr';
 
-// Switches between the two benchmarks. Each benchmark keeps its own sidebar history.
+const tabs = [
+  { id: 'asr', href: '#/', icon: AudioLines, title: 'Speech to text', subtitle: 'ASR side by side' },
+  { id: 'accuracy', href: '#/accuracy', icon: Target, title: 'ASR accuracy', subtitle: 'Graded vs. your transcript' },
+  { id: 'mom', href: '#/mom', icon: FileText, title: 'Minutes of Meeting', subtitle: 'LLM models' },
+] as const satisfies readonly { id: Tab; href: string; icon: typeof AudioLines; title: string; subtitle: string }[];
+
+// Switches between the benchmarks. Each benchmark keeps its own sidebar history.
 export function BenchmarkNav({ active }: { active: Tab }) {
   return <nav className="bench-nav" aria-label="Benchmarks">
-    <a href="#/" className={active === 'asr' ? 'active' : ''} aria-current={active === 'asr' ? 'page' : undefined}><AudioLines size={15} /><span>Speech to text<small>ASR models</small></span></a>
-    <a href="#/mom" className={active === 'mom' ? 'active' : ''} aria-current={active === 'mom' ? 'page' : undefined}><FileText size={15} /><span>Minutes of Meeting<small>LLM models</small></span></a>
+    {tabs.map(tab => <a key={tab.id} href={tab.href} className={active === tab.id ? 'active' : ''} aria-current={active === tab.id ? 'page' : undefined}><tab.icon size={15} /><span>{tab.title}<small>{tab.subtitle}</small></span></a>)}
   </nav>;
 }

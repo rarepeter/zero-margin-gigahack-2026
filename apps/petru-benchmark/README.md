@@ -3,6 +3,7 @@
 Two benchmarks for the Secure MoM pipeline, in two tabs:
 
 - **Speech to text** compares full transcripts of an uploaded recording from OpenRouter models and a local Moldovan Romanian Whisper model.
+- **ASR accuracy** ranks the same models against your own reference transcript, at several chunk sizes. Claude Opus grades content only. See [Rank ASR models against a reference](#rank-asr-models-against-a-reference).
 - **Minutes of Meeting** scores open-weight text models on turning raw multilingual transcripts into structured Romanian minutes. Claude Opus grades each result against a hidden answer key. See [Compare MoM models](#compare-mom-models).
 
 Runs, request settings, raw responses, and results persist locally in SQLite.
@@ -77,6 +78,18 @@ To test timestamps, enable **Request timestamps**. Local Whisper returns clickab
 Context and vocabulary apply to local Whisper and hosted Whisper when Groq serves the request. These are short recognition hints, not chat system prompts. Keep them concise. Local Whisper reports an error if they exceed its 223-text-token budget. Clear both fields to compare against a run without hints. A custom Groq prompt in **Advanced options** overrides both fields for hosted Whisper.
 
 The prompt is saved with each run, appears under **Settings used for this run**, and is included in JSON exports. **Run again** copies the saved prompt. Older runs retain an empty context; select **Use hospital preset** when rerunning them to add it. See [the context research and model limits](docs/benchmark.md#hospital-context-prompt).
+
+## Rank ASR models against a reference
+
+Uses the same OpenRouter key, local Whisper setup, and Claude Code CLI judge as the other tabs.
+
+1. Open **ASR accuracy** in the sidebar.
+2. Upload a recording or choose a saved one. Add your reference transcript as a `.md` or `.txt` file. It must cover the whole recording.
+3. Add chunk sizes in seconds. The defaults are 10, 20, and 30. Select models.
+4. Select **Run benchmark**. Each chunk size becomes a Speech to text run. Opus grades each finished transcript against your reference.
+5. Read the ranking: models are rows and chunk sizes are columns. Select a cell to see the errors that matter and both transcripts side by side.
+
+See [the ASR accuracy design](docs/asr-accuracy.md) for scoring, transcript conventions, and limits.
 
 ## Compare MoM models
 

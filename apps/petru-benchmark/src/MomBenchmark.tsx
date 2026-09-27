@@ -4,6 +4,7 @@ import { MOM_MODELS, REFERENCE_ID, isLocalMomModel, SCORE_WEIGHTS, HALLUCINATION
 import { JUDGE_SYSTEM_PROMPT, MOM_SYSTEM_PROMPT } from '../shared/mom-prompt';
 import { BenchmarkNav } from './Nav';
 import { api, date } from './api';
+import { RAMP, scoreStyle } from './score';
 
 const typeLabels: Record<MomTranscriptSummary['meetingType'], string> = {
   clinical: 'Clinical', financial: 'Financial', administrative: 'Administrative', executive: 'Executive', operational: 'Operational', crisis: 'Crisis',
@@ -14,13 +15,6 @@ const modelName = (id: string) => id === REFERENCE_ID ? 'Judge reference' : MOM_
 const mean = (values: number[]) => values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : null;
 const runFromHash = () => location.hash.match(/^#\/mom\/([\w-]+)$/)?.[1] ?? null;
 const seconds = (ms: number | null) => ms === null ? '—' : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
-
-// Single-hue sequential ramp (light → dark teal) for 0–100 scores. The number is always printed, so color is never the only cue.
-const RAMP = ['#eef6f4', '#d5ebe6', '#b3dbd2', '#86c3b6', '#57a597', '#2e8276', '#135d55'];
-function scoreStyle(score: number) {
-  const step = Math.min(RAMP.length - 1, Math.floor((score / 100) * RAMP.length));
-  return { background: RAMP[step], color: step >= 4 ? '#ffffff' : '#17313f' };
-}
 
 type Row = { modelId: string; average: number | null; graded: number; total: number; latency: number | null; tokens: number | null; cost: number | null };
 function rowsFor(run: MomRun): Row[] {

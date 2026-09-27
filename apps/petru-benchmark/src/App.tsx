@@ -6,9 +6,8 @@ import { chunkWindow, DEFAULT_CHUNK_SECONDS, MIN_CHUNK_SECONDS, MAX_CHUNK_SECOND
 import { runOptionsSchema, type Config, type ModelResult, type Recording, type Run, type RunOptions } from '../shared/schema';
 import { HOSPITAL_CONTEXT_PROMPT } from '../shared/prompt';
 import { BenchmarkNav } from './Nav';
-import { api, date } from './api';
+import { api, date, duration } from './api';
 
-const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 const isActive = (run: Run) => run.results.some(r => r.status === 'queued' || r.status === 'running');
 const statusLabel = (run: Run) => isActive(run) ? 'In progress' : run.results.every(r => r.status === 'completed') ? 'Completed' : 'Needs attention';
 const localStateLabels = {

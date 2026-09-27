@@ -11,7 +11,10 @@ export class Queue {
   private stopped = false;
   private abort = new AbortController();
   private pending = new Set<Promise<void>>();
+  private listeners: ((resultId: string) => void)[] = [];
   constructor(private store: Store, private apiKey: () => string, private fetcher: typeof fetch = fetch, private local?: LocalTranscriber) {}
+  // Called once per model result when it completes or fails. Not called on shutdown.
+  onSettled(listener: (resultId: string) => void) { this.listeners.push(listener); }
   enqueue(run: Run) {
     this.jobs.push(...run.results.map(result => ({ run, result })));
     this.drain();
@@ -30,6 +33,7 @@ export class Queue {
       const promise = this.execute(job.run, job.result).finally(() => {
         this.active[provider]--;
         this.pending.delete(promise);
+        if (!this.stopped) for (const listener of this.listeners) listener(job.result.id);
         this.drain();
       });
       this.pending.add(promise);

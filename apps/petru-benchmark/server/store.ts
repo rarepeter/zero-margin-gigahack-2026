@@ -69,6 +69,10 @@ export class Store {
       error: row.error, chunks,
     };
   }
+  resultById(id: string): ModelResult | null {
+    const row = this.db.query<ResultRow, [string]>('SELECT * FROM results WHERE id = ?').get(id);
+    return row ? this.result(row) : null;
+  }
   run(id: string): Run | null {
     const row = this.db.query<RunRow, [string]>('SELECT * FROM runs WHERE id = ?').get(id);
     if (!row) return null;

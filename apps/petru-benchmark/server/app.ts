@@ -1,5 +1,5 @@
 import { resolve, join, extname } from 'node:path';
-import { createRunSchema, type Config, type Recording } from '../shared/schema';
+import { createRunSchema, type Config, type CreateRun, type Recording } from '../shared/schema';
 import { MAX_UPLOAD_BYTES, prepareAudio, prepareChunkVariant } from './audio';
 import { DEFAULT_CHUNK_SECONDS } from '../shared/chunking';
 import { Store } from './store';
@@ -9,6 +9,7 @@ import { LOCAL_WHISPER_MODEL } from '../shared/models';
 import { localUnavailable, type LocalTranscriber } from './local-whisper';
 import { HttpError, json } from './http';
 import { createMomApi } from './mom';
+import { createAsrBenchmarkApi } from './asr-benchmark';
 import { ClaudeCliJudge, type Judge } from './judge';
 import type { LocalMom } from './llama';
 
@@ -17,10 +18,31 @@ export function createApp(options: { root: string; apiKey: () => string; fetcher
   const store = new Store(resolve(options.root));
   store.recover();
   const queue = new Queue(store, options.apiKey, options.fetcher, options.localWhisper);
-  const mom = createMomApi({ db: store.db, judge: options.judge ?? new ClaudeCliJudge(), local: options.localMom, apiKey: options.apiKey, fetcher: options.fetcher, judgeConcurrency: options.judgeConcurrency, dataDir: options.momDataDir });
+  const judge = options.judge ?? new ClaudeCliJudge();
+  const mom = createMomApi({ db: store.db, judge, local: options.localMom, apiKey: options.apiKey, fetcher: options.fetcher, judgeConcurrency: options.judgeConcurrency, dataDir: options.momDataDir });
+  // prepareRun is a hoisted function declaration below.
+  const asr = createAsrBenchmarkApi({ store, queue, judge, apiKey: options.apiKey, judgeConcurrency: options.judgeConcurrency, prepareRun });
   let catalog: Config['catalog'] = { checkedAt: null, ids: null, error: null };
   if (options.loadCatalog !== false) void fetchCatalog(options.fetcher).then(value => { catalog = value; });
   let uploading = false;
+
+  // Validates a transcription run, prepares its chunk variant, and saves it. The caller enqueues it.
+  async function prepareRun(input: CreateRun) {
+    const hostedModels = input.models.filter(id => id !== LOCAL_WHISPER_MODEL.id);
+    if (hostedModels.length && !options.apiKey()) throw new HttpError(503, 'Add OPENROUTER_API_KEY to .env and restart the server to use hosted models.');
+    if (input.models.includes(LOCAL_WHISPER_MODEL.id)) {
+      const status = options.localWhisper?.status() ?? localUnavailable;
+      if (!status.available) throw new HttpError(503, status.error || 'Local Whisper is unavailable.');
+    }
+    const recording = store.recording(input.audioId);
+    if (!recording) throw new HttpError(404, 'Recording not found.');
+    if (catalog.ids && hostedModels.some(id => !catalog.ids!.includes(id))) throw new HttpError(400, 'A selected model is absent from the current OpenRouter catalog. Refresh the catalog and selection.');
+    const sanitized = createRunSchema.parse(redact(input, options.apiKey()));
+    const chunks = sanitized.options.chunkSeconds === DEFAULT_CHUNK_SECONDS
+      ? recording.chunks
+      : await prepareChunkVariant(recording.original, recording.recording.duration, sanitized.options.chunkSeconds);
+    return store.createRun(sanitized.audioId, sanitized.models, sanitized.options, chunks);
+  }
 
   async function handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -63,21 +85,7 @@ export function createApp(options: { root: string; apiKey: () => string; fetcher
       if (!req.headers.get('content-type')?.includes('application/json')) throw new HttpError(415, 'Send JSON.');
       const parsed = createRunSchema.safeParse(await req.json());
       if (!parsed.success) throw new HttpError(400, parsed.error.issues.map(i => i.message).join('; '));
-      const input = parsed.data;
-      const hostedModels = input.models.filter(id => id !== LOCAL_WHISPER_MODEL.id);
-      if (hostedModels.length && !options.apiKey()) throw new HttpError(503, 'Add OPENROUTER_API_KEY to .env and restart the server to use hosted models.');
-      if (input.models.includes(LOCAL_WHISPER_MODEL.id)) {
-        const status = options.localWhisper?.status() ?? localUnavailable;
-        if (!status.available) throw new HttpError(503, status.error || 'Local Whisper is unavailable.');
-      }
-      const recording = store.recording(input.audioId);
-      if (!recording) throw new HttpError(404, 'Recording not found.');
-      if (catalog.ids && hostedModels.some(id => !catalog.ids!.includes(id))) throw new HttpError(400, 'A selected model is absent from the current OpenRouter catalog. Refresh the catalog and selection.');
-      const sanitized = createRunSchema.parse(redact(input, options.apiKey()));
-      const chunks = sanitized.options.chunkSeconds === DEFAULT_CHUNK_SECONDS
-        ? recording.chunks
-        : await prepareChunkVariant(recording.original, recording.recording.duration, sanitized.options.chunkSeconds);
-      const run = store.createRun(sanitized.audioId, sanitized.models, sanitized.options, chunks);
+      const run = await prepareRun(parsed.data);
       queue.enqueue(run);
       return json(run, 201);
     }
@@ -89,6 +97,7 @@ export function createApp(options: { root: string; apiKey: () => string; fetcher
       return json(run);
     }
     if (path.startsWith('/api/mom/')) { const response = await mom.handle(req, path); if (response) return response; }
+    if (path.startsWith('/api/asr-benchmarks')) { const response = await asr.handle(req, path); if (response) return response; }
     if (path.startsWith('/api/')) throw new HttpError(404, 'Endpoint not found.');
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Method not allowed.');
     const dist = resolve('dist');
@@ -109,6 +118,7 @@ export function createApp(options: { root: string; apiKey: () => string; fetcher
       }
     },
     mom: mom.store,
-    close: async () => { await Promise.all([queue.close(), mom.close()]); store.close(); },
+    asr,
+    close: async () => { await Promise.all([queue.close(), mom.close(), asr.close()]); store.close(); },
   };
 }
