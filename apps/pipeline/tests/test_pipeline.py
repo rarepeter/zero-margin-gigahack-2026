@@ -8,15 +8,13 @@ from datetime import datetime
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from time import monotonic, sleep
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from doubles import AcceptingAudioService
 from secure_mom_pipeline import api
-from secure_mom_pipeline.audio_service import MockAudioService
-from secure_mom_pipeline.callback_transport import make_in_process_callback_sender
 from secure_mom_pipeline.event_log import EventLog
 from secure_mom_pipeline.intermediate_transformer import (
     IntermediateTransformationError,
@@ -218,7 +216,7 @@ def mom_document(
 def dispatch_audio(store: JobStore, job_id: str) -> str:
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.dispatch-audio"),
         RecordingTextService(),
     )
@@ -354,7 +352,7 @@ def create_review_ready_job(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.review-ready"),
         RecordingTextService(),
     )
@@ -486,20 +484,24 @@ def test_failed_atomic_state_replace_preserves_previous_checkpoint(
     assert not list(store.job_directory(job_id).glob(".state-*.tmp"))
 
 
-def test_worker_dispatches_to_mock_service_and_persists_checkpoint(
+def test_worker_dispatches_audio_and_persists_checkpoint(
     client: TestClient, store: JobStore
 ) -> None:
     job_id = upload(client, content=b"audio-one").json()["jobId"]
     logger = logging.getLogger("test.worker.success")
+    audio_service = AcceptingAudioService()
 
-    assert process_one(store, MockAudioService(), logger, RecordingTextService()) is True
+    assert process_one(store, audio_service, logger, RecordingTextService()) is True
 
     state = store.read_state(job_id)
     assert state.status == JobStatus.TRANSCRIBING
     assert state.stage == "audio_processing"
     assert state.attempts.transcription == 1
     assert state.model_jobs.audio is not None
-    assert state.model_jobs.audio.startswith("mock-audio-")
+    [(submitted_job, audio_path, idempotency_key)] = audio_service.submissions
+    assert submitted_job == job_id
+    assert audio_path.is_absolute() and audio_path.read_bytes() == b"audio-one"
+    assert idempotency_key == f"{job_id}:transcription:1"
     assert [event.event_type for event in store.read_events(job_id)] == [
         "upload.started",
         "upload.persisted",
@@ -518,8 +520,8 @@ def test_waiting_transcription_does_not_block_second_job(
     second = upload(client, content=b"second").json()["jobId"]
     logger = logging.getLogger("test.worker.single")
 
-    assert process_one(store, MockAudioService(), logger, RecordingTextService()) is True
-    assert process_one(store, MockAudioService(), logger, RecordingTextService()) is True
+    assert process_one(store, AcceptingAudioService(), logger, RecordingTextService()) is True
+    assert process_one(store, AcceptingAudioService(), logger, RecordingTextService()) is True
 
     assert store.read_state(first).status == JobStatus.TRANSCRIBING
     assert store.read_state(second).status == JobStatus.TRANSCRIBING
@@ -534,7 +536,7 @@ def test_worker_records_safe_failure_when_audio_is_missing(
 
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.worker.failure"),
         RecordingTextService(),
     )
@@ -596,7 +598,7 @@ def test_structured_transcription_is_preserved_and_text_is_dispatched(
     text_service = RecordingTextService()
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.transcription-flow"),
         text_service,
     )
@@ -767,7 +769,7 @@ def test_text_dispatch_retries_one_transient_connection_failure(
 
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.retry"),
         service,
     )
@@ -800,7 +802,7 @@ def test_worker_resumes_from_persisted_text_input_checkpoint(
     with pytest.raises(KeyboardInterrupt, match="simulated process stop"):
         process_one(
             store,
-            MockAudioService(),
+            AcceptingAudioService(),
             logging.getLogger("test.stop"),
             SimulatedStopTextService(),
         )
@@ -809,7 +811,7 @@ def test_worker_resumes_from_persisted_text_input_checkpoint(
     service = RecordingTextService()
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.resume"),
         service,
     )
@@ -933,7 +935,7 @@ def test_worker_resumes_transcription_received_after_store_restart(
     service = RecordingTextService()
     assert process_one(
         restarted_store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.source-restart"),
         service,
     )
@@ -983,7 +985,7 @@ def test_generating_job_does_not_block_next_queued_job(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.first-text"),
         RecordingTextService(),
     )
@@ -991,53 +993,12 @@ def test_generating_job_does_not_block_next_queued_job(
 
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.generating-blocks"),
         RecordingTextService(),
     )
     assert store.read_state(first).status == JobStatus.GENERATING_MOM
     assert store.read_state(second).status == JobStatus.TRANSCRIBING
-
-
-def test_mock_audio_service_pushes_transcription_callback_after_delay(
-    tmp_path: Path,
-) -> None:
-    received = Event()
-    requests: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        received.set()
-        return httpx.Response(202)
-
-    audio_path = tmp_path / "meeting.mp3"
-    audio_path.write_bytes(b"mock audio")
-    service = MockAudioService(
-        "http://pipeline.local/api/v1/integrations/audio/jobs/{job_id}/transcription",
-        callback_delay_seconds=0.01,
-        transport=httpx.MockTransport(handler),
-    )
-
-    submission = service.submit("pipeline-job", audio_path.resolve())
-
-    assert received.wait(timeout=1)
-    assert len(requests) == 1
-    request = requests[0]
-    assert request.url.path.endswith(
-        "/integrations/audio/jobs/pipeline-job/transcription"
-    )
-    assert request.headers["x-audio-model-job-id"] == submission.model_job_id
-    assert request.headers["content-type"] == "application/json"
-    document = json.loads(request.content)
-    assert document["schemaVersion"] == 1
-    assert document["jobId"] == "pipeline-job"
-    assert document["quality"]["transcriptConfidence"] == 0.91
-    assert "cefazolina" in document["transcript"]["text"]
-    assert len(document["transcript"]["segments"]) == 6
-    assert document["audioMetadata"]["recordedAt"] == "2026-09-25T08:00:00Z"
-
-    service.ensure_callback("pipeline-job", submission.model_job_id)
-    assert len(requests) == 1
 
 
 def test_mom_callback_persists_json_and_advances_to_review(
@@ -1054,7 +1015,7 @@ def test_mom_callback_persists_json_and_advances_to_review(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.mom-result"),
         RecordingTextService(),
     )
@@ -1165,7 +1126,7 @@ def test_worker_sends_one_persisted_review_notification(
 
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.notification.accepted"),
         RecordingTextService(),
         mail_adapter=mail,
@@ -1202,7 +1163,7 @@ def test_worker_sends_one_persisted_review_notification(
     restarted_mail = RecordingMailAdapter()
     assert not process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.notification.restart"),
         RecordingTextService(),
         mail_adapter=restarted_mail,
@@ -1219,7 +1180,7 @@ def test_worker_retries_only_known_pre_acceptance_failure_with_a_bound(
 
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.notification.failed-one"),
         RecordingTextService(),
         mail_adapter=failing_mail,
@@ -1235,7 +1196,7 @@ def test_worker_retries_only_known_pre_acceptance_failure_with_a_bound(
 
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.notification.failed-two"),
         RecordingTextService(),
         mail_adapter=failing_mail,
@@ -1254,7 +1215,7 @@ def test_worker_retries_only_known_pre_acceptance_failure_with_a_bound(
 
     assert not process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.notification.failed-stopped"),
         RecordingTextService(),
         mail_adapter=failing_mail,
@@ -1271,7 +1232,7 @@ def test_worker_does_not_retry_uncertain_or_interrupted_submission(
     uncertain_mail = RecordingMailAdapter(fail=True, acceptance_unknown=True)
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.notification.uncertain"),
         RecordingTextService(),
         mail_adapter=uncertain_mail,
@@ -1284,7 +1245,7 @@ def test_worker_does_not_retry_uncertain_or_interrupted_submission(
     assert uncertain["retryable"] is False
     assert not process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.notification.uncertain-restart"),
         RecordingTextService(),
         mail_adapter=RecordingMailAdapter(),
@@ -1294,7 +1255,7 @@ def test_worker_does_not_retry_uncertain_or_interrupted_submission(
     with pytest.raises(KeyboardInterrupt):
         process_one(
             store,
-            MockAudioService(),
+            AcceptingAudioService(),
             logging.getLogger("test.notification.interrupted"),
             RecordingTextService(),
             mail_adapter=CrashingMailAdapter(),
@@ -1306,7 +1267,7 @@ def test_worker_does_not_retry_uncertain_or_interrupted_submission(
     recovered_mail = RecordingMailAdapter()
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.notification.recovered"),
         RecordingTextService(),
         mail_adapter=recovered_mail,
@@ -1331,7 +1292,7 @@ def test_concurrent_worker_invocation_submits_notification_once(
         first = executor.submit(
             process_one,
             store,
-            MockAudioService(),
+            AcceptingAudioService(),
             logging.getLogger("test.notification.concurrent-one"),
             RecordingTextService(),
             None,
@@ -1341,7 +1302,7 @@ def test_concurrent_worker_invocation_submits_notification_once(
         second = executor.submit(
             process_one,
             store,
-            MockAudioService(),
+            AcceptingAudioService(),
             logging.getLogger("test.notification.concurrent-two"),
             RecordingTextService(),
             None,
@@ -1378,7 +1339,7 @@ def test_participant_names_accept_directory_or_custom_values_and_persist(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.participants"),
         RecordingTextService(),
     )
@@ -1426,7 +1387,7 @@ def test_participant_names_reject_unknown_speakers(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.participants.invalid"),
         RecordingTextService(),
     )
@@ -1457,7 +1418,7 @@ def test_approval_persists_edited_mom_without_delivery(
         client, job_id, audio_job_id, transcription_document(job_id)
     ).status_code == 202
     assert process_one(
-        store, MockAudioService(), logging.getLogger("test.approval"), RecordingTextService()
+        store, AcceptingAudioService(), logging.getLogger("test.approval"), RecordingTextService()
     )
     draft = mom_document()
     assert push_mom(client, job_id, "text-job-1", draft).status_code == 202
@@ -1499,7 +1460,7 @@ def test_approval_softly_skips_external_recipients_and_delivers_locally(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.delivery"),
         RecordingTextService(),
     )
@@ -1561,7 +1522,7 @@ def test_delivery_failure_preserves_approval_and_same_request_retries(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.delivery-retry"),
         RecordingTextService(),
     )
@@ -1601,7 +1562,7 @@ def test_all_disallowed_recipients_are_skipped_without_smtp(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.delivery-skipped"),
         RecordingTextService(),
     )
@@ -1639,7 +1600,7 @@ def test_review_context_preserves_missing_model_confidence(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.null-confidence"),
         RecordingTextService(),
     )
@@ -1667,7 +1628,7 @@ def test_mom_callback_validates_contract(
     ).status_code == 202
     assert process_one(
         store,
-        MockAudioService(),
+        AcceptingAudioService(),
         logging.getLogger("test.mom-validation"),
         RecordingTextService(),
     )
@@ -1694,35 +1655,6 @@ def test_mom_callback_validates_contract(
     assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
 
 
-def test_in_process_audio_mock_callback_completes_without_loopback_network(
-    client: TestClient,
-    store: JobStore,
-) -> None:
-    job_id = upload(client).json()["jobId"]
-    audio_service = MockAudioService(
-        "http://unreachable.local/api/v1/integrations/audio/jobs/"
-        "{job_id}/transcription",
-        callback_delay_seconds=0.02,
-        callback_sender=make_in_process_callback_sender(api.app),
-    )
-    text_service = RecordingTextService()
-
-    assert process_one(
-        store, audio_service, logging.getLogger("test.in-process.audio"), text_service
-    )
-
-    deadline = monotonic() + 2
-    while store.read_state(job_id).stage != "transcription_received":
-        assert monotonic() < deadline
-        sleep(0.01)
-
-    assert process_one(
-        store, audio_service, logging.getLogger("test.in-process.text"), text_service
-    )
-    assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
-    assert len(text_service.submissions) == 1
-
-
 def test_mom_failure_callback_fails_the_job_idempotently(
     client: TestClient,
     store: JobStore,
@@ -1733,7 +1665,7 @@ def test_mom_failure_callback_fails_the_job_idempotently(
         client, job_id, audio_model_job_id, transcription_document(job_id)
     ).status_code == 202
     assert process_one(
-        store, MockAudioService(), logging.getLogger("test.mom-failure"), RecordingTextService()
+        store, AcceptingAudioService(), logging.getLogger("test.mom-failure"), RecordingTextService()
     )
     failure = {
         "code": "INVALID_MODEL_OUTPUT",
@@ -1762,3 +1694,33 @@ def test_mom_failure_callback_fails_the_job_idempotently(
     assert job["status"] == "FAILED"
     assert job["error"] == failure
     assert store.read_events(job_id)[-1].event_type == "mom.generation.failed"
+
+
+def test_transcription_failure_callback_fails_the_job_idempotently(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    failure = {
+        "code": "NO_SPEECH",
+        "message": "No speech was recognised in the recording.",
+        "retryable": False,
+    }
+    route = f"/api/v1/integrations/audio/jobs/{job_id}/failure"
+
+    def push(model_job_id: str) -> httpx.Response:
+        return client.post(route, json=failure, headers={"X-Audio-Model-Job-Id": model_job_id})
+
+    wrong_model = push("wrong")
+    received = push(audio_model_job_id)
+    replay = push(audio_model_job_id)
+
+    assert wrong_model.status_code == 409
+    assert wrong_model.json()["error"]["code"] == "TRANSCRIPTION_CORRELATION_MISMATCH"
+    assert received.status_code == 202
+    assert replay.status_code == 200 and replay.json()["replayed"] is True
+    state = store.read_state(job_id)
+    assert state.status == JobStatus.FAILED
+    assert state.error is not None and state.error.code == "NO_SPEECH"
+    assert store.read_events(job_id)[-1].event_type == "transcription.failed"

@@ -587,6 +587,111 @@ async def receive_transcription(
     )
 
 
+@app.post(
+    f"{settings.api_prefix}{settings.routes.transcription_failure}",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=TranscriptionReceipt,
+    responses={
+        200: {"model": TranscriptionReceipt},
+        404: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope},
+        500: {"model": ErrorEnvelope},
+    },
+    summary="Record that the audio service could not produce a transcription",
+)
+def receive_transcription_failure(
+    job_id: str,
+    failure: MomFailure,
+    audio_model_job_id: Annotated[
+        str,
+        Header(alias="X-Audio-Model-Job-Id", min_length=1),
+    ],
+) -> TranscriptionReceipt | JSONResponse:
+    try:
+        with job_store.locked_job(job_id) as directory:
+            state_model = job_store.read_state(job_id)
+            if state_model.model_jobs.audio != audio_model_job_id:
+                return _error(
+                    status.HTTP_409_CONFLICT,
+                    "TRANSCRIPTION_CORRELATION_MISMATCH",
+                    "The failure does not match the active audio model job.",
+                    True,
+                )
+            reported = JobError(
+                code=failure.code,
+                message=failure.message,
+                retryable=failure.retryable,
+            )
+            if state_model.status == JobStatus.FAILED and state_model.error == reported:
+                receipt = TranscriptionReceipt(
+                    job_id=job_id,
+                    status=state_model.status,
+                    stage=state_model.stage,
+                    replayed=True,
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content=receipt.model_dump(mode="json", by_alias=True),
+                )
+            if not (
+                state_model.status == JobStatus.TRANSCRIBING
+                and state_model.stage == "audio_processing"
+            ):
+                return _error(
+                    status.HTTP_409_CONFLICT,
+                    "TRANSCRIPTION_NOT_EXPECTED",
+                    "The job is not waiting for a transcription.",
+                    False,
+                )
+            failed_state = state_model.model_copy(
+                update={
+                    "status": JobStatus.FAILED,
+                    "updated_at": utc_now(),
+                    "error": reported,
+                }
+            )
+            job_store.write_state_at(directory, failed_state)
+            job_store.append_event_at(
+                directory,
+                job_id=job_id,
+                event_type="job.state.changed",
+                producer="pipeline-api",
+                value={"status": failed_state.status, "stage": failed_state.stage},
+            )
+            job_store.append_event_at(
+                directory,
+                job_id=job_id,
+                event_type="transcription.failed",
+                producer="pipeline-api",
+                value={"errorCode": failure.code, "retryable": failure.retryable},
+            )
+    except JobNotFoundError:
+        return _error(
+            status.HTTP_404_NOT_FOUND,
+            "JOB_NOT_FOUND",
+            "The requested job does not exist.",
+            False,
+        )
+    except (InvalidJobStateError, OSError, ValueError):
+        logger.error("event=transcription_failure_persistence_failed job_id=%s", job_id)
+        return _error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "TRANSCRIPTION_FAILURE_PERSISTENCE_FAILED",
+            "The transcription failure could not be recorded.",
+            True,
+        )
+
+    logger.info(
+        "event=transcription_failed job_id=%s error_code=%s", job_id, failure.code
+    )
+    return TranscriptionReceipt(
+        job_id=job_id,
+        status=failed_state.status,
+        stage=failed_state.stage,
+        replayed=False,
+    )
+
+
 def _build_review_context(
     *,
     state_model: JobState,

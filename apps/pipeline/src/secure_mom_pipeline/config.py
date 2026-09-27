@@ -97,6 +97,10 @@ class ApiRoutes:
         "PIPELINE_MOM_FAILURE_ROUTE",
         "/integrations/text/jobs/{job_id}/failure",
     )
+    transcription_failure: str = os.getenv(
+        "PIPELINE_TRANSCRIPTION_FAILURE_ROUTE",
+        "/integrations/audio/jobs/{job_id}/failure",
+    )
     health: str = os.getenv("PIPELINE_HEALTH_ROUTE", "/health")
     ready: str = os.getenv("PIPELINE_READY_ROUTE", "/ready")
 
@@ -151,11 +155,22 @@ class Settings:
         "PIPELINE_NOTIFICATION_MAX_ATTEMPTS", "2", 10
     )
 
-    # TODO(discovery, TD-026): replace the audio placeholder with its owner's URL.
-    # The text URL points at the local MoM service (`uv run mom-llm-service`),
-    # which acknowledges within this timeout and generates asynchronously.
+    # Both URLs point at local services in this package: speech-to-text
+    # (`uv run asr-service`) and MoM (`uv run mom-llm-service`). Each
+    # acknowledges within its timeout and works asynchronously.
     audio_service_url: str = os.getenv(
         "PIPELINE_AUDIO_SERVICE_URL", "http://127.0.0.1:8101"
+    )
+    audio_service_jobs_route: str = os.getenv(
+        "PIPELINE_AUDIO_SERVICE_JOBS_ROUTE", "/jobs"
+    )
+    audio_service_timeout_seconds: float = float(
+        os.getenv("PIPELINE_AUDIO_SERVICE_TIMEOUT_SECONDS", "10.0")
+    )
+    # Base URL of this API as the speech-to-text service reaches it.
+    audio_callback_base_url: str = os.getenv(
+        "PIPELINE_AUDIO_CALLBACK_BASE_URL",
+        f"http://127.0.0.1:{os.getenv('PIPELINE_API_PORT', '8000')}",
     )
     text_service_url: str = os.getenv(
         "PIPELINE_TEXT_SERVICE_URL", "http://127.0.0.1:8102"
@@ -173,22 +188,9 @@ class Settings:
         os.getenv("PIPELINE_MOM_MAX_BYTES", str(10 * 1024 * 1024))
     )
 
-    # The development audio mock routes through the real callback handler
-    # in-process by default. Use "http" to exercise actual loopback networking.
-    mock_callback_transport: str = os.getenv(
-        "PIPELINE_MOCK_CALLBACK_TRANSPORT", "in_process"
-    )
-    mock_audio_callback_base_url: str = os.getenv(
-        "PIPELINE_MOCK_AUDIO_CALLBACK_BASE_URL",
-        f"http://127.0.0.1:{os.getenv('PIPELINE_API_PORT', '8000')}",
-    )
-    mock_audio_callback_delay_seconds: float = float(
-        os.getenv("PIPELINE_MOCK_AUDIO_CALLBACK_DELAY_SECONDS", "5.0")
-    )
-
     # TODO(discovery, TD-032): tune after observing actual local services.
-    mock_worker_interval_seconds: float = float(
-        os.getenv("PIPELINE_MOCK_WORKER_INTERVAL_SECONDS", "1.0")
+    worker_interval_seconds: float = float(
+        os.getenv("PIPELINE_WORKER_INTERVAL_SECONDS", "1.0")
     )
 
 

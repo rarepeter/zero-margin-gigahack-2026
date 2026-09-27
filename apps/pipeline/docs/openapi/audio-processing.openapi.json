@@ -3,7 +3,7 @@
   "info": {
     "title": "Audio-processing ML API",
     "version": "0.1.0-contract",
-    "description": "Asynchronous local audio-to-text boundary. The service accepts a local recording reference, returns a model job ID, and pushes a schema-version-1 transcription result to the configured pipeline callback."
+    "description": "Asynchronous local audio-to-text boundary, implemented by `uv run asr-service`. The service accepts a local recording reference, returns a model job ID, and pushes a schema-version-1 transcription result to `callbackUrl`, or a safe failure to `failureUrl`."
   },
   "paths": {
     "/health": {
@@ -22,6 +22,9 @@
       "post": {
         "operationId": "submitAudioJob",
         "summary": "Submit local audio processing asynchronously",
+        "parameters": [
+          {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1}, "description": "A repeated key returns the first job for the same pipeline job."}
+        ],
         "requestBody": {
           "required": true,
           "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AudioJobRequest"}}}
@@ -37,6 +40,12 @@
           "contentType": "application/json",
           "correlationHeader": "X-Audio-Model-Job-Id",
           "payloadSchema": {"$ref": "#/components/schemas/TranscriptionResult"}
+        },
+        "x-failure-callback": {
+          "method": "POST",
+          "contentType": "application/json",
+          "correlationHeader": "X-Audio-Model-Job-Id",
+          "payloadSchema": {"$ref": "#/components/schemas/TranscriptionFailure"}
         }
       }
     }
@@ -46,11 +55,12 @@
       "AudioJobRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["pipelineJobId", "audioPath", "callbackUrl"],
+        "required": ["pipelineJobId", "audioPath", "callbackUrl", "failureUrl"],
         "properties": {
           "pipelineJobId": {"type": "string", "minLength": 1},
           "audioPath": {"type": "string", "minLength": 1, "description": "Absolute path to the locally persisted recording"},
-          "callbackUrl": {"type": "string", "format": "uri"}
+          "callbackUrl": {"type": "string", "format": "uri"},
+          "failureUrl": {"type": "string", "format": "uri"}
         }
       },
       "AudioJobAcknowledgement": {
@@ -103,7 +113,10 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["durationMs"],
-        "properties": {"durationMs": {"type": "integer", "exclusiveMinimum": 0}}
+        "properties": {
+          "durationMs": {"type": "integer", "exclusiveMinimum": 0},
+          "recordedAt": {"type": ["string", "null"], "format": "date-time", "description": "Container creation time, when the recording has one"}
+        }
       },
       "LanguageDetection": {
         "type": "object",
@@ -131,6 +144,16 @@
           "speakingTimeProportion": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
         }
       },
+      "TranscriptionFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "retryable"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 64},
+          "message": {"type": "string", "minLength": 1, "maxLength": 300, "description": "Shown to the portal user; never meeting content"},
+          "retryable": {"type": "boolean"}
+        }
+      },
       "TranscriptionQuality": {
         "type": "object",
         "additionalProperties": false,
@@ -142,5 +165,5 @@
       }
     }
   },
-  "x-contract-status": "Agreed schema-version-1 data shape; transport details remain adapter-owned"
+  "x-contract-status": "Implemented by src/secure_mom_asr; schema-version-1 data shape agreed"
 }

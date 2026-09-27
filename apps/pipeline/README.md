@@ -5,12 +5,13 @@ local Secure MOM processing flow.
 
 The pipeline accepts one meeting recording, stores a filesystem-backed job,
 invokes two independently operated local ML services, and supports human
-approval with optional local email delivery. This project also contains the
-local MoM service (`src/secure_mom_llm`), which runs the text stage.
+approval with optional local email delivery. This project also contains both
+local ML services: speech-to-text (`src/secure_mom_asr`) and MoM generation
+(`src/secure_mom_llm`).
 
 ```text
 audio upload
-    -> local audio-processing service (mock for now)
+    -> local speech-to-text service: FraPiz + Whisper large-v3 on whisper.cpp
     -> pushed transcription JSON (`schemaVersion: 1`)
     -> derived UTF-8 transcript.txt
     -> local MoM service: Muse Glimmer 30B Q4_K_M on llama.cpp
@@ -27,8 +28,9 @@ been installed locally.
 
 The pipeline is functional from audio upload through a persisted draft MoM.
 The API atomically publishes the uploaded recording, and a separate worker
-passes its path to the replaceable mock audio adapter. The audio-to-text service
-then pushes a structured transcription to a correlated integration endpoint.
+passes its path to the local speech-to-text service. That service pushes a
+structured transcription to a correlated integration endpoint, or a failure to
+another.
 The pipeline validates and preserves `transcript/source.json`, extracts its
 complete transcript text into `transcript/transcript.txt`, and uploads that file
 with the structured transcription to the local MoM service. The service pushes
@@ -39,25 +41,11 @@ stores `mom/draft.json` plus `review/context.json`, then advances to
 content-free `notification/intent.json`. The worker claims and submits that
 intent through local SMTP without changing the review-ready workflow state.
 
-In the runnable development flow, the mock audio adapter schedules that callback
-five seconds after accepting a recording and sends a deterministic
-schema-version-1 transcription mock result. If the worker restarts while a mock job is
-still waiting, it re-schedules the callback from the persisted checkpoint. By
-default, the mock routes the request through the real FastAPI callback handler
-in-process, so development does not depend on loopback networking. The delay
-and callback base URL are configurable with
-`PIPELINE_MOCK_AUDIO_CALLBACK_DELAY_SECONDS` and
-`PIPELINE_MOCK_AUDIO_CALLBACK_BASE_URL`.
-
-The text stage is real: the local MoM service generates the draft with Muse
-Glimmer 30B on this machine. See [The local MoM service](#the-local-mom-service).
-The persisted draft, structured transcript, and compact review context are
-available through separate read endpoints.
-
-Set `PIPELINE_MOCK_CALLBACK_TRANSPORT=http` to make the audio mock use an actual
-HTTP callback instead. This mode is useful for testing process networking and
-requires the worker to reach the configured pipeline API callback base URL. The
-MoM service always uses the HTTP callback endpoints.
+Both ML stages are real and run on this machine. See
+[The local speech-to-text service](#the-local-speech-to-text-service) and
+[The local MoM service](#the-local-mom-service). The persisted draft,
+structured transcript, and compact review context are available through
+separate read endpoints.
 
 After review, `POST /api/v1/jobs/{jobId}/approve` persists one immutable
 approved snapshot. With no accepted recipients it completes without email. With
@@ -153,11 +141,14 @@ The application reads the environment variables shown in `.env.example`.
 Loading a `.env` file automatically is not implemented; export the variables in
 the shell or use a local environment runner.
 
-Start the API, the worker, and the MoM service in separate shells:
+Start the API, the worker, and both ML services in separate shells:
 
 ```bash
 uv run pipeline-api
 uv run pipeline-worker
+ASR_FRAPIZ_MODEL_PATH=~/Models/whisper.cpp/ggml-frapiz-large-v3-turbo-moldovan-romanian.bin \
+ASR_FALLBACK_MODEL_PATH=~/Models/whisper.cpp/ggml-large-v3.bin \
+  uv run asr-service
 MOM_LLM_MODEL_PATH=~/Models/meta-models/Muse-Glimmer-30B-GGUF/Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf \
   uv run mom-llm-service
 ```
@@ -199,6 +190,120 @@ transcription checkpoints under `transcript/`, and an append-only
 acts, `notification/result.json`. Approved jobs also contain
 `mom/approved.json`; delivery attempts add `delivery/result.json`. State and
 artifact installation are atomic.
+
+## The local speech-to-text service
+
+`uv run asr-service` listens on `127.0.0.1:8101`, where the worker's
+`PIPELINE_AUDIO_SERVICE_URL` points. It ports Module 04 of the MedSpeech
+research pipeline (`medspeech_main.py`) to whisper.cpp, which runs on the Mac
+GPU through Metal. Two `whisper-server` children and the pyannote pipeline
+stay loaded between jobs; `GET /health` reports their state.
+
+Install the runtime and models while online:
+
+```bash
+brew install whisper-cpp ffmpeg   # tested with whisper.cpp 1.9.4
+mkdir -p ~/Models/whisper.cpp && cd ~/Models/whisper.cpp
+curl -LO https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+# Gated: accept the terms on huggingface.co first, then log in with `hf auth login`.
+hf download pyannote/speaker-diarization-community-1 \
+  --local-dir ~/Models/pyannote/speaker-diarization-community-1
+```
+
+FraPiz ([FraPiz/whisper-large-v3-turbo-moldovan-romanian](https://huggingface.co/FraPiz/whisper-large-v3-turbo-moldovan-romanian))
+must be converted to ggml once with whisper.cpp's
+`models/convert-h5-to-ggml.py`, which also needs a clone of `openai/whisper`
+for its mel filters. The script reads `vocab.json`, which FraPiz stores inside
+`tokenizer.json` as `model.vocab`; write it to a folder that links the other
+model files, then run the script with `torch`, `transformers`, and `numpy`.
+The result is a 1.5 GB f16 file. Point `ASR_LEXICON_PATH` at
+`Moldova_Medical_Speech_Lexicon.json` (MMSL v0.2).
+
+For each job the service:
+
+1. Accepts the recording's absolute path, the result and failure callback
+   URLs, and an `Idempotency-Key`, persists the job under `ASR_STORAGE_ROOT`,
+   and answers `202` at once.
+2. Converts the recording to 16 kHz mono PCM16 WAV and cuts it into
+   contiguous segments at the midpoints of pauses of at least 0.8 s below
+   `ASR_SILENCE_DB`: the latest pause 6–20 s in, otherwise the one nearest
+   20 s up to 30 s, otherwise at 20 s. Each segment is decoded with 0.4 s of
+   padding and, after the first, 2 s of the previous segment's audio.
+3. Starts speaker diarization in parallel.
+4. Runs FraPiz with Romanian forced: greedy, no previous-text context, no
+   timestamp tokens, and no prompt unless `ASR_LEXICON_MODE=assisted`.
+   whisper.cpp retries at a higher temperature only when its entropy check
+   detects a loop.
+5. Applies the Repeat Guard (letters, units, words and phrases repeat at most
+   twice) and MedSpeech's quality filter, which grades the raw output ACCEPT,
+   REVIEW or REJECT, plus its text checks.
+6. Only when FraPiz's result is rejected (silence, very low confidence,
+   Cyrillic, implausible length), identifies the language with large-v3 and
+   retries with large-v3 in Russian, English, or automatic detection. A
+   Russian detection on Latin-script text with lexicon matches counts as
+   Romanian, as in MedSpeech. The better-graded result wins.
+7. Removes the words the overlap repeats from the previous segment, aligning
+   the two texts word by word without case or diacritics.
+8. Drops rejected segments, caps the confidence of flagged or REVIEW segments
+   at 0.5, attributes each segment to the diarization speaker who overlaps it
+   longest, and pushes the schema-version-1 transcription to the pipeline.
+
+The job's `segments.json` keeps every attempt with its raw text, grade,
+reasons, language probabilities, lexicon matches (spoken form, `standard_ro`,
+action), and speaker overlaps. The text sent to the pipeline is never
+rewritten by the lexicon.
+
+### Differences from MedSpeech, and why
+
+Measured on a 3-minute Medpark recording of Moldovan Romanian case discussion:
+
+- **Language detection never replaces a usable FraPiz result.** Whisper
+  large-v3 labelled 6 of 9 segments Russian, and ECAPA (VoxLingua107, which
+  MedSpeech uses) labelled most of them Ukrainian, Belarusian or Lithuanian.
+  Following those labels, large-v3 wrote Romanian phonetically in Cyrillic
+  or kept two words of a 20 s segment. Comparing forced-Romanian and
+  forced-Russian decode scores was no better, because large-v3 drops most of
+  the audio when forced to Romanian.
+- **Repetition marks a segment for review instead of rejecting it.** The
+  MedSpeech filter rejected 2 of 9 segments of real speech for phrases said
+  three times in 20 s; the Repeat Guard already removes actual loops.
+- **The 2 s overlap is de-duplicated.** MedSpeech decodes it but keeps the
+  repeated words. Exact matching missed every boundary, because the two
+  decodes of the same audio differ ("da să vă" / "dă să vă"), so words are
+  aligned; a run must reach the previous text's end and match at least half
+  the removed words, so a number repeated by chance stays.
+- **Fixed MedSpeech bugs:** the pre-routing text checks used `r"\\w+"`, which
+  never matched, so their repetition and length checks never ran; adjacent
+  lexicon matches were treated as overlapping.
+- **whisper.cpp instead of transformers and Faster-Whisper**, with whisper.cpp's
+  loop retry; greedy decoding alone looped 20 times on one segment.
+- **Speaker attribution is per segment.** MedSpeech's optional re-transcription
+  of every diarization turn would decode the audio a second time.
+
+### Offline guarantee for pyannote
+
+pyannote.audio 4 sends usage telemetry to `otel.pyannote.ai` by default, even
+with `HF_HUB_OFFLINE=1`; a test run confirmed the connection attempt. The
+service sets `PYANNOTE_METRICS_ENABLED=false`, `HF_HUB_OFFLINE=1`, and
+`HF_HUB_DISABLE_TELEMETRY=1` before importing pyannote, and a diarization run
+under a socket guard made no non-loopback connection.
+
+### Performance
+
+Measured on a MacBook Pro M4 Pro with 48 GB: FraPiz decodes a 20 s segment in
+about 1 s. pyannote diarizes 3 minutes in 6 s on `mps` and 88 s on `cpu`. The
+3-minute recording took 14 s through the service, diarization included (13×
+realtime). A 60-minute meeting has not been measured yet.
+
+Known limits:
+
+- A Russian passage that FraPiz renders in Romanian stays in Romanian, and a
+  Russian word inside a Romanian sentence stays in Latin script. Neither can
+  be detected reliably on Medpark audio with the local detectors tried.
+- Speaker attribution is per segment; a 20 s segment with two speakers goes
+  to the one who spoke longer.
+- The lexicon-assisted prompt is off by default, as MedSpeech recommends; its
+  effect on accuracy has not been measured.
 
 ## The local MoM service
 
@@ -293,13 +398,17 @@ uv run pytest
 ```
 
 The tests cover upload validation and persistence, callback correlation and
-idempotency, structured-transcript extraction, the multipart text submission,
-the delayed audio mock callback, versioned JSON validation, confidence
+idempotency, structured-transcript extraction, the audio and text submissions,
+both failure callbacks, versioned JSON validation, confidence
 propagation, review-context projection, atomic checkpoints, restart recovery,
 status reads, event ordering, concurrent locking, non-blocking scheduling,
 transient retry, and safe failures. The MoM service tests run the full
 pipeline round trip with a stand-in for the model, plus evidence checking,
-failure reporting, and byte-identical resends after a restart. They do not
+failure reporting, and byte-identical resends after a restart. The
+speech-to-text tests cover segmentation, the Repeat Guard, the quality
+filter, overlap de-duplication on real Medpark boundaries, lexicon matching,
+routing, speaker attribution, the pyannote telemetry switch, and a
+schema-valid result from real FFmpeg audio with stand-in models. They do not
 load the model.
 
 All source dependencies must be declared and installable before the offline
