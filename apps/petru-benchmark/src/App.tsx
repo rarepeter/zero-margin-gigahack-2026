@@ -5,18 +5,9 @@ import { MODELS, unavailableModels, type ModelId } from '../shared/models';
 import { chunkWindow, DEFAULT_CHUNK_SECONDS, MIN_CHUNK_SECONDS, MAX_CHUNK_SECONDS } from '../shared/chunking';
 import { runOptionsSchema, type Config, type ModelResult, type Recording, type Run, type RunOptions } from '../shared/schema';
 import { HOSPITAL_CONTEXT_PROMPT } from '../shared/prompt';
+import { BenchmarkNav } from './Nav';
+import { api, date, duration } from './api';
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
-  const body: unknown = await response.json();
-  if (!response.ok) {
-    const parsed = z.object({ error: z.string() }).safeParse(body);
-    throw new Error(parsed.success ? parsed.data.error : `Request failed (${response.status}).`);
-  }
-  return body as T;
-}
-const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
-const date = (value: string) => new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const isActive = (run: Run) => run.results.some(r => r.status === 'queued' || r.status === 'running');
 const statusLabel = (run: Run) => isActive(run) ? 'In progress' : run.results.every(r => r.status === 'completed') ? 'Completed' : 'Needs attention';
 const localStateLabels = {
@@ -174,7 +165,8 @@ export function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="/" aria-label="Speechbench home"><span className="brand-mark"><AudioLines size={23} /></span><span>speechbench<small>TRANSCRIPTION LAB</small></span></a>
+      <a className="brand" href="/" aria-label="Speechbench home"><span className="brand-mark"><AudioLines size={23} /></span><span>speechbench<small>HOSPITAL MODEL LAB</small></span></a>
+      <BenchmarkNav active="asr" />
       <button className="new-run" onClick={() => { setRunId(null); setError(''); }}><Plus size={17} />New comparison</button>
       <div className="sidebar-heading"><History size={14} />Run history<span>{runs.length}</span></div>
       <nav className="history" aria-label="Run history">

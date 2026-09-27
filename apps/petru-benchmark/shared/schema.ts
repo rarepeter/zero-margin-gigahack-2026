@@ -17,6 +17,7 @@ export const createRunSchema = z.object({
   models: z.array(z.enum(modelIds)).min(1).max(modelIds.length).transform(ids => [...new Set(ids)]),
   options: runOptionsSchema,
 }).strict();
+export type CreateRun = z.infer<typeof createRunSchema>;
 export type RunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'interrupted';
 export type Recording = {
   id: string; name: string; bytes: number; duration: number; createdAt: string;

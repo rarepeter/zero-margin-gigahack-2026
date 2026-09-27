@@ -1,0 +1,177 @@
+{
+  "id": "executive-02",
+  "meetingType": "executive",
+  "title": "Digital transformation strategy: HIS replacement, telemedicine, insurers, NPS",
+  "scenario": "Strategy meeting with the general director, IT head (Vadim), Russian-speaking infrastructure lead (Dmitry Alexandrovich), data protection officer (Svetlana), medical director (Tatiana) and CFO (Natalia). Two HIS vendors (on-premise vs cloud under Law 133), data migration risks, a revoked June decision on MedSoft support, a limited pilot with budget, WhatsApp telemedicine rejected, two insurer partnerships and a corrected NPS figure.",
+  "transcript": "Bună ziua. Vadim, iar a căzut Wi-Fi-ul la etajul trei azi-dimineață? Ну да, точка доступа сгорела, уже поменяли, всё работает. Normal, deci transformarea digitală începe cu Wi-Fi-ul. Hai, să începem, că avem multe. Azi vorbim de strategia digitală, adică sistemul informațional al spitalului, telemedicina, parteneriatele cu asigurătorii și indicatorii de satisfacție a pacienților. Дмитрий Александрович, вы тоже останьтесь, пожалуйста, будет про серверы. Да, конечно. Vadim, începeți cu sistemul informațional, vă rog, unde sîntem și ce oferte avem pe masă.\n\nDa. Deci MedSoft, sistemul actual, e din douăzeci doisprezece, furnizorul practic nu mai dezvoltă nimic, fișa de observație electronică e jumătate pe hîrtie, rezultatele de laborator vin în PDF, nu structurat. Avem două oferte pentru înlocuire. Prima, Hipocrate Systems, companie locală, din Chișinău, sistem on-premise, instalat pe serverele noastre. Licența trei sute zece mii de euro, suport anual patruzeci și cinci de mii, migrarea datelor inclusă în preț. A doua, CliniCloud, internațional, SaaS, optsprezece euro per utilizator pe lună, cu hosting în cloud, în Frankfurt.\n\nPentru noi asta e o problemă. Svetlana? Da. Conform Legii 133 privind protecția datelor cu caracter personal, datele privind sănătatea sunt categorie specială. Transferul în afara țării nu e interzis absolut, dar cere garanții, evaluare, și plus politica noastră internă, aprobată de consiliu, spune clar, datele pacienților rămîn pe serverele spitalului. Deci varianta cloud nu trece. Nici backup-ul nu-l punem în cloud. Backup-ul criptat stă pe serverul de rezervă din blocul B, nu în afară. CliniCloud are și o versiune on-premise? Au zis că da, dar cu patruzeci la sută mai scump, și n-au trimis oferta scrisă.\n\nДмитрий Александрович, по инфраструктуре? Значит, по серверам. Для Hipocrate нужно два сервера, у нас один новый стоит в резерве, второй надо докупить, примерно двадцать две тысячи евро. Но самое опасное это не серверы, а миграция. У нас в MedSoft около четырёхсот двадцати тысяч карточек пациентов за одиннадцать лет. И там много дубликатов, я грубо оцениваю тысяч тридцать, может больше, потому что раньше IDNP не был обязательным полем. Если мы это переносим как есть, в новой системе будет тот же бардак. Deci curățarea datelor înainte de migrare. Exact, именно.\n\nȘi PACS-ul, imaginile? PACS-ul rămîne cum e, imaginile nu le migrăm, facem doar legătura dintre sisteme. Și documentele scanate, consimțămintele, epicrizele vechi pe hîrtie scanate, nu intră în migrare, rămîn în arhiva veche, doar pentru citire. Asta e în oferta Hipocrate, am întrebat special. Bine. Și instruirea? Două zile pentru medici, o zi pentru asistente, pe secție. Medicii o să zică că nu au timp, ca de obicei. Ну, это как всегда, сначала все против, потом не могут без системы. Ha, da. Bine, mergem mai departe.\n\nȘi aici trebuie să revenim la decizia din iunie. În iunie am decis să prelungim contractul de suport cu MedSoft pe doi ani. Dacă mergem pe un sistem nou, doi ani e prea mult, plătim degeaba. Propun să anulăm decizia din iunie și să prelungim doar pe douăsprezece luni. Contractul permite? Da, actul adițional încă nu e semnat, e doar decizia internă. Bine. Deci anulăm decizia din iunie cu doi ani, prelungim suportul MedSoft doar pe douăsprezece luni. Cineva trebuie să-i anunțe pe MedSoft pînă la sfîrșitul lunii, înainte să ne trimită actul adițional. Da, trebuie. Vedem cine.\n\nAcum decizia principală. Eu nu propun să schimbăm tot spitalul dintr-o dată. Propun un pilot cu Hipocrate, în două secții, cardiologia și ambulatoriul, trei luni. Bugetul pilotului șaizeci de mii de euro, inclusiv serverul, instruirea și migrarea datelor doar pentru pacienții din aceste două secții. Natalia, avem bani? Șaizeci de mii intră în bugetul IT pe anul ăsta, da. Dar nu mai mult. Dacă depășim, venim la consiliu. Și licența completă? Licența completă, trei sute zece mii, o decidem abia după pilot, nu acum. Și CliniCloud? Le cerem oferta on-premise scrisă, ca să avem cu ce compara la decizia finală.\n\nBine. Deci decidem, pilot Hipocrate, cardiologie și ambulatoriu, trei luni, șaizeci de mii de euro. Vadim, cereți de la Hipocrate oferta comercială finală pentru pilot pînă vineri. Pînă vineri, da. Și la CliniCloud? Tot eu le scriu, dar ei răspund încet, nu știu cînd vine. Și cine e managerul de proiect pentru pilot? Vadim sau Дмитрий Александрович? Я думаю, лучше Вадим, я буду по инфраструктуре. Eu aș prefera să fie cineva din partea medicală, sincer, altfel medicii nu-l vor folosi. Mmm, bine, asta o hotărîm mai tîrziu, nu azi. Tatiana, de partea clinică, vă rog, săptămîna viitoare să numiți cîte un medic responsabil în cardiologie și în ambulatoriu, champions, cum le zice.\n\nDa, săptămîna viitoare. Svetlana, și înainte de pilot, evaluarea impactului asupra protecției datelor? Da, asta o fac eu, înainte de începerea pilotului, altfel nu pornim. Da, obligatoriu. Дмитрий Александрович, audit de calitate a datelor, cîte dubliuri sunt exact? Сделаю, но это долго, там надо скрипты писать, я не буду обещать срок. Ладно, ладно, делайте. Bun. Telemedicina. Tatiana. Da. Avem mulți pacienți din raioane, Cahul, Soroca, Edineț, care fac patru-cinci ore de drum pentru o consultație de control la cardiolog sau endocrinolog de cinci minute, să vadă analizele și să ajusteze doza de metformină sau de bisoprolol.\n\nEu propun să începem de luna viitoare consultații video de control, chiar pe WhatsApp sau Viber, pînă avem ceva mai bun. Nu, stați. WhatsApp nu. Categoric nu. Asta-s date de sănătate pe o platformă străină, fără contract de prelucrare, fără jurnal de acces. Dacă vine o inspecție de la Centrul Național pentru Protecția Datelor, nu avem ce spune. Да, согласен, WhatsApp это не вариант. Deci WhatsApp respins. Telemedicina o facem, dar integrată în noul sistem, Hipocrate are modul de teleconsultație. Pe moment amînăm telemedicina pînă după pilot. Și CNAM nu plătește teleconsultațiile, deci ar fi serviciu cu plată. Cît? Nu știu, poate două sute cincizeci de lei, trebuie calculat.\n\nPunctul următor, asigurătorii. Natalia. Da. Apropo, Garant-Asig ne-au plătit ceva din datoria veche? Nu, încă nu, dar asta-i altă temă, nu azi. Avem două propuneri de parteneriat. Garant-Asig vrea facturare electronică directă, fără hîrtie, adică noi trimitem cazul, ei confirmă în patruzeci și opt de ore și plătesc în treizeci de zile. Sunt gata să semneze. MoldCapital Asigurări vrea același lucru, dar cer o reducere de cinci la sută la toate serviciile pentru asigurații lor. Нет, пять процентов мы не дадим. Максимум три, и то только на амбулаторные услуги. Deci cu Garant-Asig semnăm acordul de parteneriat acum. Cu MoldCapital, cinci la sută nu acceptăm. Natalia, negociați cu ei, maximum trei la sută, doar la ambulator, pînă la sfîrșitul lunii.\n\nBine, pînă la sfîrșitul lunii. Și integrarea tehnică cu Garant-Asig, facturarea electronică, o facem în MedSoft sau așteptăm Hipocrate? În MedSoft nu mai investim nimic. Deci integrarea tehnică după pilot, pînă atunci facturile merg pe hîrtie, ca acum. Ultimul punct, NPS. Tatiana. Da. NPS-ul nostru, după sondajul pe o mie două sute de pacienți, e patruzeci și unu. Principalele plîngeri, așteptarea la registratură și faptul că rezultatele analizelor nu sunt online, pacientul trebuie să vină după ele sau să sune de trei ori.\n\nScuzați, Tatiana, patruzeci și unu era în primul trimestru. Sondajul din septembrie a dat treizeci și opt. Am raportul aici. Da, aveți dreptate, am luat cifra veche. Treizeci și opt. Deci a scăzut. Ținta pentru sfîrșitul anului viitor, cincizeci. Și propun ca NPS să fie KPI pentru șefii de secții, legat de bonus. Mmm, legat de bonus nu știu, asta o discutăm cu resursele umane și cu sindicatul, nu azi. Ținta de cincizeci o aprobăm. Bine. Rezultatele online vin cu noul sistem, cu portalul pacientului, tot după pilot. Дмитрий Александрович, спасибо ещё раз за Wi-Fi. Пожалуйста. Mulțumesc tuturor, la revedere.",
+  "answerKey": {
+    "items": [
+      {
+        "id": "F1",
+        "kind": "finding",
+        "text": "Hipocrate Systems (local, on-premise): license 310,000 EUR, annual support 45,000 EUR, data migration included. CliniCloud: SaaS at 18 EUR per user per month hosted in Frankfurt; an on-premise version is about 40% more expensive and no written offer was sent.",
+        "critical": false
+      },
+      {
+        "id": "D1",
+        "kind": "decision",
+        "text": "The cloud option is not acceptable (Law 133 on personal data, health data as a special category, and internal policy that patient data stay on hospital servers); backups are not put in the cloud either and stay encrypted on the backup server in building B.",
+        "critical": true
+      },
+      {
+        "id": "F2",
+        "kind": "finding",
+        "text": "MedSoft holds about 420,000 patient records over 11 years with an estimated 30,000 or more duplicates (IDNP was not mandatory earlier); a second server costing about 22,000 EUR is needed.",
+        "critical": false
+      },
+      {
+        "id": "R1",
+        "kind": "risk",
+        "text": "Migrating the records as they are would carry the duplicates into the new system; data must be cleaned before migration.",
+        "critical": false
+      },
+      {
+        "id": "F3",
+        "kind": "finding",
+        "text": "PACS images are not migrated (only linked); scanned documents (consents, old discharge summaries) are not migrated and stay read-only in the old archive. Training is two days for doctors and one day for nurses per department.",
+        "critical": false
+      },
+      {
+        "id": "D2",
+        "kind": "decision",
+        "text": "The June decision to extend MedSoft support for two years is revoked; support is extended for 12 months only (the addendum is not yet signed).",
+        "critical": true
+      },
+      {
+        "id": "A1",
+        "kind": "action",
+        "text": "Notify MedSoft of the 12-month extension before they send the addendum.",
+        "owner": null,
+        "deadline": "by the end of the month",
+        "critical": false
+      },
+      {
+        "id": "D3",
+        "kind": "decision",
+        "text": "Pilot with Hipocrate in cardiology and the outpatient department for three months, budget 60,000 EUR (including server, training and migration of these departments' patients); the full 310,000 EUR license is decided only after the pilot; any overrun goes back to the board.",
+        "critical": true
+      },
+      {
+        "id": "A2",
+        "kind": "action",
+        "text": "Obtain Hipocrate's final commercial offer for the pilot.",
+        "owner": "Vadim",
+        "deadline": "by Friday",
+        "critical": true
+      },
+      {
+        "id": "A3",
+        "kind": "action",
+        "text": "Request a written on-premise offer from CliniCloud for comparison at the final decision.",
+        "owner": "Vadim",
+        "deadline": null,
+        "critical": false
+      },
+      {
+        "id": "Q1",
+        "kind": "open_question",
+        "text": "The pilot project manager is not decided (Vadim or Dmitry Alexandrovich suggested, the medical side preferred); to be decided later.",
+        "critical": false
+      },
+      {
+        "id": "A4",
+        "kind": "action",
+        "text": "Designate a responsible physician (champion) in cardiology and in the outpatient department.",
+        "owner": "Tatiana",
+        "deadline": "next week",
+        "critical": false
+      },
+      {
+        "id": "A5",
+        "kind": "action",
+        "text": "Carry out the data protection impact assessment; the pilot does not start without it.",
+        "owner": "Svetlana",
+        "deadline": "before the pilot starts",
+        "critical": true
+      },
+      {
+        "id": "A6",
+        "kind": "action",
+        "text": "Audit data quality to count the exact number of duplicate records.",
+        "owner": "Dmitry Alexandrovich (Дмитрий Александрович)",
+        "deadline": null,
+        "critical": false
+      },
+      {
+        "id": "D4",
+        "kind": "decision",
+        "text": "Video consultations over WhatsApp or Viber from next month were rejected (health data on a foreign platform without processing contract or access log); telemedicine is postponed until after the pilot and will use the new system's teleconsultation module.",
+        "critical": true
+      },
+      {
+        "id": "Q2",
+        "kind": "open_question",
+        "text": "CNAM does not pay teleconsultations, so they would be a paid service; the price (maybe 250 lei) has not been calculated.",
+        "critical": false
+      },
+      {
+        "id": "D5",
+        "kind": "decision",
+        "text": "Sign the partnership agreement with Garant-Asig now (direct electronic billing, confirmation within 48 hours, payment within 30 days); the technical integration waits for the pilot since nothing more is invested in MedSoft, and invoices stay on paper until then.",
+        "critical": false
+      },
+      {
+        "id": "D6",
+        "kind": "decision",
+        "text": "MoldCapital Asigurări's request for a 5% discount on all services is refused; at most 3%, on outpatient services only.",
+        "critical": false
+      },
+      {
+        "id": "A7",
+        "kind": "action",
+        "text": "Negotiate with MoldCapital Asigurări within the 3% outpatient-only limit.",
+        "owner": "Natalia",
+        "deadline": "by the end of the month",
+        "critical": false
+      },
+      {
+        "id": "F4",
+        "kind": "finding",
+        "text": "Current NPS is 38 (September survey), not 41 (the Q1 figure first quoted); main complaints are waiting at registration and lab results not available online.",
+        "critical": true
+      },
+      {
+        "id": "D7",
+        "kind": "decision",
+        "text": "NPS target of 50 by the end of next year approved; linking NPS to department heads' bonuses was not decided (to be discussed with HR and the union).",
+        "critical": false
+      }
+    ],
+    "traps": [
+      {
+        "id": "T1",
+        "text": "States that CliniCloud or any cloud hosting (including cloud backups) was accepted; the cloud option was rejected and backups stay on-premise."
+      },
+      {
+        "id": "T2",
+        "text": "Reports the MedSoft support extension as two years; that June decision was revoked and replaced with 12 months."
+      },
+      {
+        "id": "T3",
+        "text": "States that WhatsApp/Viber teleconsultations start next month or that telemedicine was launched; WhatsApp was rejected and telemedicine postponed until after the pilot."
+      },
+      {
+        "id": "T4",
+        "text": "Reports the current NPS as 41; it was corrected to 38."
+      },
+      {
+        "id": "T5",
+        "text": "Names Vadim or anyone else as the pilot project manager; it was left undecided."
+      },
+      {
+        "id": "T6",
+        "text": "States that full Hipocrate rollout or the 310,000 EUR license was approved, or that NPS was tied to bonuses; only a 3-month, 60,000 EUR pilot and the NPS target were approved."
+      }
+    ]
+  }
+}

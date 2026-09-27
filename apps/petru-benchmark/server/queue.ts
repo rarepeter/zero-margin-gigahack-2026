@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { buildRequest, redact, transcribe, TranscriptionError } from './openrouter';
+import { buildRequest, redact, transcribe, UpstreamError } from './openrouter';
 import type { Store } from './store';
 import { MODELS } from '../shared/models';
 import { buildLocalRequest, type LocalTranscriber } from './local-whisper';
@@ -11,7 +11,10 @@ export class Queue {
   private stopped = false;
   private abort = new AbortController();
   private pending = new Set<Promise<void>>();
+  private listeners: ((resultId: string) => void)[] = [];
   constructor(private store: Store, private apiKey: () => string, private fetcher: typeof fetch = fetch, private local?: LocalTranscriber) {}
+  // Called once per model result when it completes or fails. Not called on shutdown.
+  onSettled(listener: (resultId: string) => void) { this.listeners.push(listener); }
   enqueue(run: Run) {
     this.jobs.push(...run.results.map(result => ({ run, result })));
     this.drain();
@@ -30,6 +33,7 @@ export class Queue {
       const promise = this.execute(job.run, job.result).finally(() => {
         this.active[provider]--;
         this.pending.delete(promise);
+        if (!this.stopped) for (const listener of this.listeners) listener(job.result.id);
         this.drain();
       });
       this.pending.add(promise);
@@ -56,9 +60,9 @@ export class Queue {
           const message = String(redact(error instanceof Error ? error.message : 'Transcription failed.', this.apiKey()));
           this.store.saveChunk(result.id, {
             index: chunk.index, start: chunk.start, end: chunk.end, request, status: 'failed', text: '', error: message,
-            response: error instanceof TranscriptionError ? error.body : null,
-            generationId: error instanceof TranscriptionError ? error.generationId : null,
-            latencyMs: error instanceof TranscriptionError ? error.latencyMs : Math.round(performance.now() - started),
+            response: error instanceof UpstreamError ? error.body : null,
+            generationId: error instanceof UpstreamError ? error.generationId : null,
+            latencyMs: error instanceof UpstreamError ? error.latencyMs : Math.round(performance.now() - started),
             cost: null,
           });
           this.store.status(result.id, 'failed', `Chunk ${chunk.index + 1}/${chunks.length}: ${message}. No automatic retry was made. Earlier chunks remain saved.`);
