@@ -2,7 +2,8 @@
 // Responses follow the same versioned JSON contracts as the pipeline API.
 import momExample from './examples/mom.example.json';
 import transcriptExample from './examples/transcript.example.json';
-import type { ApprovedMom, JobStatus, JobStatusResponse, MomResult, ReviewContextResponse, SecureMomApi, TranscriptionResult } from './types';
+import { demoDirectoryMatches } from '../data/directory';
+import type { ApprovedMom, JobStatus, JobStatusResponse, MomResult, ParticipantAssignments, ReviewContextResponse, SecureMomApi, TranscriptionResult } from './types';
 
 /** Simulated pipeline timing (ms from upload). Tweak to slow the demo down. */
 const T_TRANSCRIBING = 400;
@@ -20,6 +21,7 @@ interface MockJob {
 const transcriptFixture = transcriptExample as unknown as TranscriptionResult;
 const jobs = new Map<string, MockJob>();
 const approvals = new Map<string, ApprovedMom>();
+const participantAssignments = new Map<string, ParticipantAssignments>();
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fallbackJob = (): MockJob => ({
   created: Date.now() - T_READY,
@@ -75,7 +77,13 @@ export const mockApi: SecureMomApi = {
   },
   async getTranscript(jobId) {
     await wait(150);
-    return { ...structuredClone(transcriptFixture), jobId };
+    const result = { ...structuredClone(transcriptFixture), jobId };
+    const saved = participantAssignments.get(jobId);
+    if (saved) {
+      const names = new Map(saved.assignments.map((item) => [item.speakerId, item.displayName]));
+      result.speakers = result.speakers.map((speaker) => ({ ...speaker, displayName: names.get(speaker.id) ?? speaker.displayName }));
+    }
+    return result;
   },
   async getMom() {
     await wait(150);
@@ -129,6 +137,12 @@ export const mockApi: SecureMomApi = {
         mom: { available: true, href: `/api/v1/jobs/${encodeURIComponent(jobId)}/mom` },
       },
     };
+    const saved = participantAssignments.get(jobId);
+    if (saved) {
+      const names = new Map(saved.assignments.map((item) => [item.speakerId, item.displayName]));
+      response.speakers = response.speakers.map((speaker) => ({ ...speaker, displayName: names.get(speaker.id) ?? speaker.displayName }));
+      response.meetingMetadata.namedSpeakerCount = response.speakers.filter((speaker) => speaker.displayName).length;
+    }
     return response;
   },
   async retryJob(jobId) {
@@ -160,6 +174,21 @@ export const mockApi: SecureMomApi = {
     const approved = approvals.get(jobId);
     if (!approved) throw new Error('The MoM has not been approved.');
     return structuredClone(approved);
+  },
+  async searchDirectory(query) {
+    await wait(80);
+    return demoDirectoryMatches(query);
+  },
+  async saveParticipantAssignments(jobId, assignments) {
+    await wait(150);
+    const saved: ParticipantAssignments = {
+      schemaVersion: 1,
+      jobId,
+      updatedAt: new Date().toISOString(),
+      assignments: structuredClone(assignments),
+    };
+    participantAssignments.set(jobId, saved);
+    return structuredClone(saved);
   },
   async discardJob(jobId) {
     jobs.delete(jobId);

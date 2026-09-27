@@ -69,6 +69,16 @@ export const liveApi: SecureMomApi = {
   async getApprovedMom(jobId) {
     return (await req(`/api/v1/jobs/${enc(jobId)}/approved-mom`)).json() as Promise<ApprovedMom>;
   },
+  async searchDirectory(query) {
+    return (await req(`/api/v1/directory?q=${enc(query)}`)).json();
+  },
+  async saveParticipantAssignments(jobId, assignments) {
+    return (await req(`/api/v1/jobs/${enc(jobId)}/participants`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schemaVersion: 1, assignments }),
+    })).json();
+  },
   async discardJob(jobId) {
     // TODO(backend): endpoint not in openapi.json yet.
     await req(`/api/v1/jobs/${enc(jobId)}`, { method: 'DELETE' });

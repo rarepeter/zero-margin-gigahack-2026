@@ -951,6 +951,99 @@ def test_mom_callback_persists_json_and_advances_to_review(
     assert conflict.json()["error"]["code"] == "MOM_CONFLICT"
 
 
+def test_local_directory_searches_names_emails_and_titles(client: TestClient) -> None:
+    by_name = client.get("/api/v1/directory", params={"q": "ciobanu"})
+    by_email = client.get("/api/v1/directory", params={"q": "m.lungu"})
+    by_title = client.get("/api/v1/directory", params={"q": "anestezie"})
+
+    assert by_name.status_code == 200
+    assert [person["name"] for person in by_name.json()] == ["dr. Ciobanu"]
+    assert [person["name"] for person in by_email.json()] == [
+        "farmacist clinician Lungu"
+    ]
+    assert [person["name"] for person in by_title.json()] == ["dr. Munteanu"]
+
+
+def test_participant_names_accept_directory_or_custom_values_and_persist(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client, job_id, audio_job_id, transcription_document(job_id)
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.participants"),
+        RecordingTextService(),
+    )
+    assert push_mom(client, job_id, "text-job-1", mom_document()).status_code == 202
+
+    response = client.put(
+        f"/api/v1/jobs/{job_id}/participants",
+        json={
+            "schemaVersion": 1,
+            "assignments": [
+                {"speakerId": "speaker-1", "displayName": "  Custom Participant  "}
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["assignments"] == [
+        {"speakerId": "speaker-1", "displayName": "Custom Participant"}
+    ]
+    state = store.read_state(job_id)
+    assert state.artifacts.participant_assignments is not None
+    persisted = json.loads(
+        (store.job_directory(job_id) / "review/participant-assignments.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert persisted == response.json()
+    assert client.get(f"/api/v1/jobs/{job_id}/transcript").json()["speakers"][0][
+        "displayName"
+    ] == "Custom Participant"
+    context = client.get(f"/api/v1/jobs/{job_id}/review-context").json()
+    assert context["speakers"][0]["displayName"] == "Custom Participant"
+    assert context["meetingMetadata"]["namedSpeakerCount"] == 1
+    assert store.read_events(job_id)[-1].event_type == "participants.updated"
+
+
+def test_participant_names_reject_unknown_speakers(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client, job_id, audio_job_id, transcription_document(job_id)
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.participants.invalid"),
+        RecordingTextService(),
+    )
+    assert push_mom(client, job_id, "text-job-1", mom_document()).status_code == 202
+
+    response = client.put(
+        f"/api/v1/jobs/{job_id}/participants",
+        json={
+            "schemaVersion": 1,
+            "assignments": [
+                {"speakerId": "speaker-missing", "displayName": "Unknown"}
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "UNKNOWN_SPEAKER"
+    assert store.read_state(job_id).artifacts.participant_assignments is None
+
+
 def test_approval_persists_edited_mom_without_delivery(
     client: TestClient,
     store: JobStore,

@@ -208,6 +208,42 @@
         "title": "DetectedLanguage",
         "type": "object"
       },
+      "DirectoryPerson": {
+        "additionalProperties": false,
+        "description": "One locally maintained person available to portal autocomplete.",
+        "properties": {
+          "email": {
+            "minLength": 3,
+            "pattern": "^[^@\\s]+@[^@\\s]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ],
+        "title": "DirectoryPerson",
+        "type": "object"
+      },
       "ErrorDetail": {
         "properties": {
           "code": {
@@ -1173,6 +1209,87 @@
         "title": "MomTopic",
         "type": "object"
       },
+      "ParticipantAssignment": {
+        "additionalProperties": false,
+        "description": "A reviewer-confirmed display name for one diarized speaker.",
+        "properties": {
+          "displayName": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Displayname",
+            "type": "string"
+          },
+          "speakerId": {
+            "minLength": 1,
+            "title": "Speakerid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "speakerId",
+          "displayName"
+        ],
+        "title": "ParticipantAssignment",
+        "type": "object"
+      },
+      "ParticipantAssignments": {
+        "additionalProperties": false,
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ParticipantAssignment"
+            },
+            "title": "Assignments",
+            "type": "array"
+          },
+          "jobId": {
+            "minLength": 1,
+            "title": "Jobid",
+            "type": "string"
+          },
+          "schemaVersion": {
+            "const": 1,
+            "title": "Schemaversion",
+            "type": "integer"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "assignments",
+          "jobId",
+          "updatedAt"
+        ],
+        "title": "ParticipantAssignments",
+        "type": "object"
+      },
+      "ParticipantAssignmentsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ParticipantAssignment"
+            },
+            "title": "Assignments",
+            "type": "array"
+          },
+          "schemaVersion": {
+            "const": 1,
+            "title": "Schemaversion",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "assignments"
+        ],
+        "title": "ParticipantAssignmentsRequest",
+        "type": "object"
+      },
       "ProcessingSummary": {
         "properties": {
           "audioStageMs": {
@@ -1733,6 +1850,51 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/directory": {
+      "get": {
+        "operationId": "get_directory_api_v1_directory_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 160,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DirectoryPerson"
+                  },
+                  "title": "Response Get Directory Api V1 Directory Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search the local demo staff directory"
+      }
+    },
     "/api/v1/integrations/audio/jobs/{job_id}/transcription": {
       "post": {
         "operationId": "receive_transcription_api_v1_integrations_audio_jobs__job_id__transcription_post",
@@ -2353,6 +2515,95 @@
           }
         },
         "summary": "Read the persisted draft MoM JSON"
+      }
+    },
+    "/api/v1/jobs/{job_id}/participants": {
+      "put": {
+        "operationId": "save_participant_assignments_api_v1_jobs__job_id__participants_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParticipantAssignmentsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParticipantAssignments"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Persist reviewer-confirmed names for diarized speakers"
       }
     },
     "/api/v1/jobs/{job_id}/retry": {

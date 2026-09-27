@@ -95,14 +95,17 @@ job deletion in the current MVP.
 The team must decide retention/deletion behavior. No frontend or backend change
 was made: deletion was neither implemented nor removed.
 
-### B7 — Recipient source — demo list retained
+### B7 — Local participant and recipient directory — resolved for the demo
 
-The recipient picker uses hard-coded `@medpark.test` people. No local directory
-contract or confirmed institutional distribution-list source exists.
+The participant and recipient pickers query the server-owned
+`GET /api/v1/directory?q=` endpoint. Its current `@medpark.test` data is a small
+static demo list and does not call an external directory.
 
-The existing local demo directory remains. The backend independently enforces
-its configured allowed domains and softly reports skipped values. Delivery uses
-only the loopback SMTP adapter; no external directory or SMTP service is used.
+Participant names are saved through `PUT /api/v1/jobs/{jobId}/participants`.
+Unmatched free-text names are accepted and persisted as a separate review
+artifact. The backend still independently enforces its configured email-domain
+allowlist and softly reports skipped recipient addresses. Delivery uses only
+the loopback SMTP adapter; no external directory or SMTP service is used.
 
 ### B9 — Inferred meeting type must not control delivery — resolved in the UI
 

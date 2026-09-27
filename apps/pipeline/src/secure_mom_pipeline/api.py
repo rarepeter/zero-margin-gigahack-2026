@@ -11,11 +11,12 @@ from time import monotonic
 from typing import Annotated
 
 import uvicorn
-from fastapi import FastAPI, File, Header, Request, UploadFile, status
+from fastapi import FastAPI, File, Header, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from .config import get_settings
+from .directory import search_people
 from .job_store import InvalidJobStateError, JobNotFoundError, JobStore
 from .logging_config import configure_logging
 from .mail_adapter import LocalMailAdapter, MailAdapterError, make_local_mail_adapter
@@ -26,6 +27,7 @@ from .models import (
     ArtifactLink,
     CreateJobResponse,
     DeliveryResult,
+    DirectoryPerson,
     ErrorDetail,
     ErrorEnvelope,
     JobArtifacts,
@@ -37,6 +39,9 @@ from .models import (
     MomDocument,
     MomResult,
     MomReceipt,
+    ParticipantAssignment,
+    ParticipantAssignments,
+    ParticipantAssignmentsRequest,
     ProcessingSummary,
     ReviewArtifactLinks,
     ReviewContext,
@@ -45,6 +50,7 @@ from .models import (
     ReviewSourceRecording,
     SourceRecording,
     SubmittedBy,
+    TranscriptionSpeaker,
     TranscriptionResult,
     TranscriptionReceipt,
     utc_now,
@@ -117,6 +123,36 @@ def _partition_recipients(recipients: list[str]) -> tuple[list[str], list[str]]:
     return accepted, skipped
 
 
+def _read_participant_assignments(
+    directory: Path,
+    state_model: JobState,
+) -> ParticipantAssignments | None:
+    descriptor = state_model.artifacts.participant_assignments
+    if descriptor is None:
+        return None
+    return ParticipantAssignments.model_validate_json(
+        job_store.read_artifact_at(directory, descriptor)
+    )
+
+
+def _apply_participant_assignments(
+    speakers: list[TranscriptionSpeaker],
+    assignments: ParticipantAssignments | None,
+) -> list[TranscriptionSpeaker]:
+    if assignments is None:
+        return speakers
+    names = {
+        assignment.speaker_id: assignment.display_name
+        for assignment in assignments.assignments
+    }
+    return [
+        speaker.model_copy(
+            update={"display_name": names.get(speaker.id, speaker.display_name)}
+        )
+        for speaker in speakers
+    ]
+
+
 def _json_bytes(model: ApprovedMom | DeliveryResult) -> bytes:
     return (
         json.dumps(
@@ -126,6 +162,17 @@ def _json_bytes(model: ApprovedMom | DeliveryResult) -> bytes:
         )
         + "\n"
     ).encode("utf-8")
+
+
+@app.get(
+    f"{settings.api_prefix}{settings.routes.directory}",
+    response_model=list[DirectoryPerson],
+    summary="Search the local demo staff directory",
+)
+def get_directory(
+    q: Annotated[str, Query(max_length=160)] = "",
+) -> list[DirectoryPerson]:
+    return search_people(q)
 
 
 def _safe_extension(filename: str | None) -> str | None:
@@ -870,6 +917,116 @@ async def receive_mom(
     )
 
 
+@app.put(
+    f"{settings.api_prefix}{settings.routes.participants}",
+    response_model=ParticipantAssignments,
+    responses={
+        400: {"model": ErrorEnvelope},
+        404: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope},
+        500: {"model": ErrorEnvelope},
+    },
+    summary="Persist reviewer-confirmed names for diarized speakers",
+)
+def save_participant_assignments(
+    job_id: str,
+    request: ParticipantAssignmentsRequest,
+) -> ParticipantAssignments | JSONResponse:
+    try:
+        with job_store.locked_job(job_id) as directory:
+            state_model = job_store.read_state(job_id)
+            if state_model.status != JobStatus.AWAITING_REVIEW:
+                return _error(
+                    status.HTTP_409_CONFLICT,
+                    "NOT_AWAITING_REVIEW",
+                    "Participant names can only be edited while the job awaits review.",
+                    False,
+                )
+            transcription_descriptor = state_model.artifacts.transcription_source
+            if transcription_descriptor is None:
+                return _error(
+                    status.HTTP_409_CONFLICT,
+                    "ARTIFACT_NOT_READY",
+                    "The transcription is not available yet.",
+                    True,
+                )
+            transcription = TranscriptionResult.model_validate_json(
+                job_store.read_artifact_at(directory, transcription_descriptor)
+            )
+            valid_speaker_ids = {speaker.id for speaker in transcription.speakers}
+            unknown = [
+                assignment.speaker_id
+                for assignment in request.assignments
+                if assignment.speaker_id not in valid_speaker_ids
+            ]
+            if unknown:
+                return _error(
+                    status.HTTP_400_BAD_REQUEST,
+                    "UNKNOWN_SPEAKER",
+                    "One or more speaker IDs are not present in this transcription.",
+                    False,
+                )
+            saved = ParticipantAssignments(
+                schema_version=1,
+                job_id=job_id,
+                updated_at=utc_now(),
+                assignments=[
+                    ParticipantAssignment(
+                        speaker_id=assignment.speaker_id,
+                        display_name=assignment.display_name.strip(),
+                    )
+                    for assignment in request.assignments
+                ],
+            )
+            data = (
+                json.dumps(
+                    saved.model_dump(mode="json", by_alias=True),
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            ).encode("utf-8")
+            descriptor = job_store.write_artifact_at(
+                directory,
+                relative_path="review/participant-assignments.json",
+                data=data,
+                media_type="application/json",
+            )
+            updated_state = state_model.model_copy(
+                update={
+                    "updated_at": saved.updated_at,
+                    "artifacts": state_model.artifacts.model_copy(
+                        update={"participant_assignments": descriptor}
+                    ),
+                }
+            )
+            job_store.write_state_at(directory, updated_state)
+            job_store.append_event_at(
+                directory,
+                job_id=job_id,
+                event_type="participants.updated",
+                producer="pipeline-api",
+                value={"speakerCount": len(saved.assignments)},
+            )
+            return saved
+    except JobNotFoundError:
+        return _error(
+            status.HTTP_404_NOT_FOUND,
+            "JOB_NOT_FOUND",
+            "The requested job does not exist.",
+            False,
+        )
+    except (InvalidJobStateError, ValidationError, ValueError, OSError):
+        logger.error("event=participant_assignments_save_failed job_id=%s", job_id)
+        return _error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "PARTICIPANT_ASSIGNMENTS_SAVE_FAILED",
+            "The participant names could not be saved.",
+            True,
+        )
+
+
 @app.get(
     f"{settings.api_prefix}{settings.routes.transcript}",
     response_model=TranscriptionResult,
@@ -893,6 +1050,9 @@ def get_transcript(job_id: str) -> TranscriptionResult | JSONResponse:
             )
         data = job_store.read_artifact_at(job_store.job_directory(job_id), descriptor)
         transcription = TranscriptionResult.model_validate_json(data)
+        assignments = _read_participant_assignments(
+            job_store.job_directory(job_id), state_model
+        )
     except JobNotFoundError:
         return _error(
             status.HTTP_404_NOT_FOUND,
@@ -909,10 +1069,16 @@ def get_transcript(job_id: str) -> TranscriptionResult | JSONResponse:
             False,
         )
     logger.info("event=transcript_read job_id=%s", job_id)
-    # Preserve the validated artifact's JSON shape. Re-serializing a Pydantic
-    # model would add optional null fields that the producing model did not
-    # send, which breaks exact artifact replay and fixture compatibility.
-    return JSONResponse(content=json.loads(data))
+    if assignments is None:
+        # Preserve exact artifact replay until the reviewer adds speaker names.
+        return JSONResponse(content=json.loads(data))
+    return transcription.model_copy(
+        update={
+            "speakers": _apply_participant_assignments(
+                transcription.speakers, assignments
+            )
+        }
+    )
 
 
 @app.get(
@@ -981,6 +1147,9 @@ def get_review_context(job_id: str) -> ReviewContextResponse | JSONResponse:
             )
         data = job_store.read_artifact_at(job_store.job_directory(job_id), descriptor)
         context = ReviewContext.model_validate_json(data)
+        assignments = _read_participant_assignments(
+            job_store.job_directory(job_id), state_model
+        )
     except JobNotFoundError:
         return _error(
             status.HTTP_404_NOT_FOUND,
@@ -997,6 +1166,21 @@ def get_review_context(job_id: str) -> ReviewContextResponse | JSONResponse:
             False,
         )
     logger.info("event=review_context_read job_id=%s", job_id)
+    if assignments is not None:
+        speakers = _apply_participant_assignments(context.speakers, assignments)
+        context = context.model_copy(
+            update={
+                "updated_at": assignments.updated_at,
+                "speakers": speakers,
+                "meeting_metadata": context.meeting_metadata.model_copy(
+                    update={
+                        "named_speaker_count": sum(
+                            speaker.display_name is not None for speaker in speakers
+                        )
+                    }
+                ),
+            }
+        )
     return ReviewContextResponse.from_context(context)
 
 

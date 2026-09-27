@@ -20,6 +20,7 @@ function DiscardConfirm({ onCancel }: { onCancel: () => void }) {
 /** Fixed bottom bar: recipients, Discard, and approval/export controls. */
 export function BottomBar() {
   const { s, l, exportMom } = useApp();
+  const editing = s.reviewEditing || s.participantEditing;
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const discardBtn = useRef<HTMLButtonElement>(null);
@@ -28,12 +29,12 @@ export function BottomBar() {
   }
   return (
     <div className="bar2">
-      <div className="to">{s.reviewEditing ? l.ed_save : <RecipientPicker />}</div>
+      <div className="to">{editing ? l.ed_save : <RecipientPicker />}</div>
       <button ref={discardBtn} className="btn btn-ghost" type="button" onClick={() => setConfirm(true)}>{l.discard}</button>
       <button
         className="btn btn-export"
         type="button"
-        disabled={s.reviewEditing || busy}
+        disabled={editing || busy}
         onClick={async () => { setBusy(true); try { await exportMom(); } finally { setBusy(false); } }}
       >
         <Icon name={s.recipients.length ? 'send' : 'down'} />

@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search the local demo staff directory */
+        get: operations["get_directory_api_v1_directory_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/audio/jobs/{job_id}/transcription": {
         parameters: {
             query?: never;
@@ -116,6 +133,23 @@ export interface paths {
         /** Read the persisted draft MoM JSON */
         get: operations["get_mom_api_v1_jobs__job_id__mom_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Persist reviewer-confirmed names for diarized speakers */
+        put: operations["save_participant_assignments_api_v1_jobs__job_id__participants_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -293,6 +327,18 @@ export interface components {
             code: string;
             /** Proportion */
             proportion: number;
+        };
+        /**
+         * DirectoryPerson
+         * @description One locally maintained person available to portal autocomplete.
+         */
+        DirectoryPerson: {
+            /** Email */
+            email: string;
+            /** Name */
+            name: string;
+            /** Title */
+            title?: string | null;
         };
         /** ErrorDetail */
         ErrorDetail: {
@@ -579,6 +625,43 @@ export interface components {
             /** Title */
             title: string;
         };
+        /**
+         * ParticipantAssignment
+         * @description A reviewer-confirmed display name for one diarized speaker.
+         */
+        ParticipantAssignment: {
+            /** Displayname */
+            displayName: string;
+            /** Speakerid */
+            speakerId: string;
+        };
+        /** ParticipantAssignments */
+        ParticipantAssignments: {
+            /** Assignments */
+            assignments: components["schemas"]["ParticipantAssignment"][];
+            /** Jobid */
+            jobId: string;
+            /**
+             * Schemaversion
+             * @constant
+             */
+            schemaVersion: 1;
+            /**
+             * Updatedat
+             * Format: date-time
+             */
+            updatedAt: string;
+        };
+        /** ParticipantAssignmentsRequest */
+        ParticipantAssignmentsRequest: {
+            /** Assignments */
+            assignments: components["schemas"]["ParticipantAssignment"][];
+            /**
+             * Schemaversion
+             * @constant
+             */
+            schemaVersion: 1;
+        };
         /** ProcessingSummary */
         ProcessingSummary: {
             /** Audiostagems */
@@ -764,6 +847,37 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_directory_api_v1_directory_get: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryPerson"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     receive_transcription_api_v1_integrations_audio_jobs__job_id__transcription_post: {
         parameters: {
             query?: never;
@@ -1229,6 +1343,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MomResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    save_participant_assignments_api_v1_jobs__job_id__participants_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantAssignmentsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParticipantAssignments"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
             /** @description Not Found */

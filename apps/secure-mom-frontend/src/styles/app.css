@@ -513,6 +513,27 @@ mark.term{text-decoration-color:var(--accent)}
 .plist .pct{font-family:var(--mono);font-size:.85rem;text-align:right}
 .plist .pct i{display:block;height:4px;border-radius:2px;background:var(--surface-2);margin-top:6px;width:90px;overflow:hidden}
 .plist .pct i span{display:block;height:100%;background:#00A2A4}
+.part-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-top:26px}
+.part-heading .dsub{margin:0}
+.part-actions{display:flex;align-items:center;gap:8px}
+.part-actions .btn-sm{min-height:32px}
+.part-name{min-width:0;position:relative}
+.part-name-button{display:block;width:100%;padding:3px 5px;margin:-3px -5px;border:0;border-radius:5px;background:transparent;color:var(--name);font:inherit;font-weight:600;text-align:left;cursor:text}
+.part-name-button:hover:not(:disabled),.part-name-button:focus-visible{background:#EEF7F7;outline:0}
+.part-name-button:disabled{cursor:default}
+.part-combo{position:relative}
+.part-combo input{width:100%;box-sizing:border-box;border:1px solid #00A2A4;border-radius:7px;background:#fff;color:var(--ink);padding:8px 10px;font:inherit;font-weight:600;outline:0;box-shadow:0 0 0 3px rgba(0,162,164,.1)}
+.part-options{position:static;width:100%;box-sizing:border-box;max-height:260px;overflow-y:auto;margin-top:7px;padding:5px;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 8px 20px rgba(26,43,45,.12)}
+.plist li:has(.part-options){align-items:start}
+.part-options button{display:block;width:100%;padding:8px;border:0;border-radius:6px;background:transparent;color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.part-options button:hover,.part-options button:focus-visible{background:#F4FAFA;outline:0}
+.part-options button span,.part-options button small{display:block}
+.part-options button small{margin-top:2px}
+.part-options .part-use-custom{margin-bottom:4px;background:#EEF7F7;color:#006A6D}
+.part-options-label{display:block;padding:5px 8px 3px;color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em}
+.part-custom{display:block;padding:9px;color:var(--muted)}
+.part-lookup-error{color:#9A5A00}
+.part-save-error{margin:10px 0 0;color:#B4232C;font-size:.84rem;line-height:1.4}
 .dl{display:grid;grid-template-columns:minmax(120px,32%) 1fr;margin:0}
 .dl dt,.dl dd{padding:14px 0;border-bottom:1px solid var(--line);margin:0}
 .dl dt{color:var(--muted);font-size:.88rem}

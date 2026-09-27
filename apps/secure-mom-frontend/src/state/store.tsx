@@ -1,6 +1,6 @@
 // Single app store (useReducer + context). One page, so no router.
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
-import { api, API_MODE, ApiError, type JobStatus, type JobStatusResponse, type ReviewContextResponse } from '../api';
+import { api, API_MODE, ApiError, type JobStatus, type JobStatusResponse, type ParticipantAssignment, type ReviewContextResponse } from '../api';
 import { parseMom, type Mom } from '../domain/mom';
 import { segmentsFromTranscription, type Segment } from '../domain/transcript';
 import { type Person } from '../data/directory';
@@ -28,6 +28,7 @@ export interface State {
   reviewContext: ReviewContextResponse | null;
   edits: Edits;
   reviewEditing: boolean;
+  participantEditing: boolean;
   approvalLocked: boolean;
   recipients: Person[];
   deliveredRecipientCount: number;
@@ -40,7 +41,7 @@ export interface State {
 
 const initial = (lang: LangCode, openedAt = Date.now()): State => ({
   lang, screen: 'upload', serverOnline: null, jobId: null, fileName: null, job: null, seen: {}, uploadedAt: null, readyAt: null,
-  error: null, segments: [], mom: null, reviewContext: null, edits: {}, reviewEditing: false, approvalLocked: false, recipients: [], deliveredRecipientCount: 0, portalSecs: 0,
+  error: null, segments: [], mom: null, reviewContext: null, edits: {}, reviewEditing: false, participantEditing: false, approvalLocked: false, recipients: [], deliveredRecipientCount: 0, portalSecs: 0,
   portalOpenedAt: openedAt, outcome: null, exported: null, toast: null,
 });
 
@@ -55,8 +56,10 @@ type Act =
   | { type: 'failed'; error: string }
   | { type: 'edits'; edits: Edits }
   | { type: 'reviewEditing'; editing: boolean }
+  | { type: 'participantEditing'; editing: boolean }
   | { type: 'approvalLocked' }
   | { type: 'recipients'; recipients: Person[] }
+  | { type: 'participantNames'; assignments: ParticipantAssignment[] }
   | { type: 'done'; outcome: Outcome; exported: Mom | null; deliveredRecipientCount?: number; clickedAt?: number }
   | { type: 'restored'; jobId: string; exported: Mom; reviewContext: ReviewContextResponse | null; elapsedSecs: number; deliveredRecipientCount: number }
   | { type: 'toast'; msg: string | null }
@@ -71,13 +74,30 @@ function reducer(s: State, a: Act): State {
     case 'job': return { ...s, job: a.job, seen: s.seen[a.job.status] ? s.seen : { ...s.seen, [a.job.status]: Date.now() } };
     case 'segments': return { ...s, segments: a.segments };
     case 'ready': {
-      return { ...s, screen: 'review', mom: a.mom, segments: a.segments, reviewContext: a.reviewContext, readyAt: Date.now(), edits: {}, approvalLocked: false, recipients: [] };
+      return { ...s, screen: 'review', mom: a.mom, segments: a.segments, reviewContext: a.reviewContext, readyAt: Date.now(), edits: {}, reviewEditing: false, participantEditing: false, approvalLocked: false, recipients: [] };
     }
     case 'failed': return { ...s, screen: 'failed', error: a.error };
     case 'edits': return { ...s, edits: a.edits };
     case 'reviewEditing': return { ...s, reviewEditing: a.editing };
-    case 'approvalLocked': return { ...s, reviewEditing: false, approvalLocked: true };
+    case 'participantEditing': return { ...s, participantEditing: a.editing };
+    case 'approvalLocked': return { ...s, reviewEditing: false, participantEditing: false, approvalLocked: true };
     case 'recipients': return { ...s, recipients: a.recipients };
+    case 'participantNames': {
+      const names = new Map(a.assignments.map((item) => [item.speakerId, item.displayName]));
+      const speakers = s.reviewContext?.speakers.map((speaker) => ({ ...speaker, displayName: names.get(speaker.id) ?? speaker.displayName }));
+      return {
+        ...s,
+        segments: s.segments.map((segment) => ({ ...segment, speaker: segment.speakerId ? names.get(segment.speakerId) ?? segment.speaker : segment.speaker })),
+        reviewContext: s.reviewContext && speakers ? {
+          ...s.reviewContext,
+          speakers,
+          meetingMetadata: {
+            ...s.reviewContext.meetingMetadata,
+            namedSpeakerCount: speakers.filter((speaker) => speaker.displayName).length,
+          },
+        } : s.reviewContext,
+      };
+    }
     case 'done': return { ...s, screen: 'done', outcome: a.outcome, exported: a.exported, deliveredRecipientCount: a.deliveredRecipientCount ?? 0, portalSecs: a.clickedAt ? Math.max(0, Math.round((a.clickedAt - s.portalOpenedAt) / 1000)) : 0 };
     case 'restored': return { ...s, screen: 'done', jobId: a.jobId, outcome: a.deliveredRecipientCount ? 'sent' : 'download', exported: a.exported, reviewContext: a.reviewContext, deliveredRecipientCount: a.deliveredRecipientCount, portalSecs: a.elapsedSecs };
     case 'toast': return { ...s, toast: a.msg };
@@ -113,7 +133,9 @@ interface Ctx {
   retry(): Promise<void>;
   saveEdits(edits: Edits): void;
   setReviewEditing(editing: boolean): void;
+  setParticipantEditing(editing: boolean): void;
   setRecipients(p: Person[]): void;
+  saveParticipantNames(assignments: ParticipantAssignment[]): Promise<void>;
   exportMom(): Promise<void>;
   discard(): Promise<void>;
   newMeeting(): void;
@@ -246,9 +268,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast(l.ed_toast);
     },
     setReviewEditing: (editing) => dispatch({ type: 'reviewEditing', editing }),
+    setParticipantEditing: (editing) => dispatch({ type: 'participantEditing', editing }),
     setRecipients: (recipients) => dispatch({ type: 'recipients', recipients }),
+    async saveParticipantNames(assignments) {
+      if (!s.jobId || s.approvalLocked) return;
+      try {
+        const saved = await api.saveParticipantAssignments(s.jobId, assignments);
+        dispatch({ type: 'participantNames', assignments: saved.assignments });
+        toast(l.part_saved);
+      } catch (error) {
+        toast(error instanceof Error ? error.message : l.part_save_error);
+        throw error;
+      }
+    },
     async exportMom() {
-      if (!s.jobId || !view || s.reviewEditing) return;
+      if (!s.jobId || !view || s.reviewEditing || s.participantEditing) return;
       const clickedAt = Date.now();
       try {
         const approved = await api.approveMom(s.jobId, view, s.recipients.map((p) => p.email));

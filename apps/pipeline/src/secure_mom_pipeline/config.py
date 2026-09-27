@@ -54,6 +54,10 @@ class ApiRoutes:
     review_context: str = os.getenv(
         "PIPELINE_REVIEW_CONTEXT_ROUTE", "/jobs/{job_id}/review-context"
     )
+    directory: str = os.getenv("PIPELINE_DIRECTORY_ROUTE", "/directory")
+    participants: str = os.getenv(
+        "PIPELINE_PARTICIPANTS_ROUTE", "/jobs/{job_id}/participants"
+    )
     approve: str = os.getenv("PIPELINE_APPROVE_ROUTE", "/jobs/{job_id}/approve")
     approved_mom: str = os.getenv(
         "PIPELINE_APPROVED_MOM_ROUTE", "/jobs/{job_id}/approved-mom"

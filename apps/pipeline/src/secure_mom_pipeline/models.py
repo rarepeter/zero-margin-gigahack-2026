@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def utc_now() -> datetime:
@@ -80,6 +80,10 @@ class JobArtifacts(PipelineModel):
     review_context: ArtifactDescriptor | None = Field(
         default=None,
         alias="reviewContext",
+    )
+    participant_assignments: ArtifactDescriptor | None = Field(
+        default=None,
+        alias="participantAssignments",
     )
     approved_mom: ArtifactDescriptor | None = Field(default=None, alias="approvedMom")
     delivery_result: ArtifactDescriptor | None = Field(
@@ -235,6 +239,43 @@ class TranscriptionSpeaker(ContractModel):
         ge=0,
         le=1,
     )
+
+
+class DirectoryPerson(ContractModel):
+    """One locally maintained person available to portal autocomplete."""
+
+    name: str = Field(min_length=1, max_length=160)
+    email: str = Field(min_length=3, pattern=r"^[^@\s]+@[^@\s]+$")
+    title: str | None = Field(default=None, max_length=160)
+
+
+class ParticipantAssignment(ContractModel):
+    """A reviewer-confirmed display name for one diarized speaker."""
+
+    speaker_id: str = Field(alias="speakerId", min_length=1)
+    display_name: str = Field(alias="displayName", min_length=1, max_length=160)
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def normalize_display_name(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ParticipantAssignmentsRequest(ContractModel):
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    assignments: list[ParticipantAssignment]
+
+    @model_validator(mode="after")
+    def validate_unique_speakers(self) -> ParticipantAssignmentsRequest:
+        speaker_ids = [item.speaker_id for item in self.assignments]
+        if len(speaker_ids) != len(set(speaker_ids)):
+            raise ValueError("assignments must contain each speakerId at most once")
+        return self
+
+
+class ParticipantAssignments(ParticipantAssignmentsRequest):
+    job_id: str = Field(alias="jobId", min_length=1)
+    updated_at: datetime = Field(alias="updatedAt")
 
 
 class TranscriptionQuality(ContractModel):

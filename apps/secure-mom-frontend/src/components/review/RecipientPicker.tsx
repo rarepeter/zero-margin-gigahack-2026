@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { DIRECTORY, INTERNAL_DOMAIN, type Person } from '../../data/directory';
+import { api } from '../../api';
+import { demoDirectoryMatches, INTERNAL_DOMAIN, type Person } from '../../data/directory';
 import { initials } from '../../domain/transcript';
 import { useApp } from '../../state/store';
 import { Icon } from '../ui/Icon';
@@ -12,6 +13,7 @@ export function RecipientPicker() {
   const { s, l, setRecipients } = useApp();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
+  const [directory, setDirectory] = useState<Person[]>([]);
   const box = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const list = s.recipients;
@@ -25,9 +27,18 @@ export function RecipientPicker() {
     return () => document.removeEventListener('mousedown', off);
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      api.searchDirectory(q).then((people) => { if (alive) setDirectory(people.length ? people : demoDirectoryMatches(q)); }).catch(() => { if (alive) setDirectory(demoDirectoryMatches(q)); });
+    }, 120);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [open, q]);
+
   const have = new Set(list.map((p) => p.email));
   const needle = q.trim().toLowerCase();
-  const matches = DIRECTORY.filter((p) => !have.has(p.email) && (!needle || `${p.name} ${p.email}`.toLowerCase().includes(needle))).slice(0, 4);
+  const matches = directory.filter((p) => !have.has(p.email)).slice(0, 4);
   const mailOk = EMAIL.test(needle) && !have.has(needle);
 
   const add = (p: Person) => { if (!s.approvalLocked) { setRecipients([...list, p]); setQ(''); input.current?.focus(); } };

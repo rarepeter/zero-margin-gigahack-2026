@@ -161,6 +161,23 @@ available. They measure elapsed time from each local model submission to its
 validated callback, including service and callback overhead. Their sum is
 distinct from the existing job-creation-to-review `elapsedMs`.
 
+### `GET /api/v1/directory?q={query}`
+
+Search the server-owned offline demo directory by name, email address, or
+title. The endpoint returns at most eight people and makes no external network
+or institutional-directory call. Both participant naming and recipient
+selection use this source during the MVP.
+
+### `PUT /api/v1/jobs/{jobId}/participants`
+
+Accept a schema-version-1 list of `{ speakerId, displayName }` assignments while
+the job is awaiting review. Every speaker ID must occur in the accepted
+transcription; display names may either come from the local directory or be
+reviewer-entered free text. The pipeline atomically persists the assignments in
+`review/participant-assignments.json` without modifying the source transcript.
+Subsequent transcript and review-context reads project the saved names into
+their speaker lists.
+
 ### `POST /api/v1/jobs/{jobId}/approve`
 
 Accept `{ "schemaVersion": 1, "document": <edited MoM>, "recipients": [...] }`
