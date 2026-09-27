@@ -3,7 +3,7 @@ import { useApp } from '../state/store';
 
 export function FailedScreen() {
   const { s, l, retry, newMeeting, toast } = useApp();
-  const retryable = s.job?.error?.retryable ?? true;
+  const retryable = s.errorRetryable;
   return (
     <>
       <div className="dconf failed" role="alert">

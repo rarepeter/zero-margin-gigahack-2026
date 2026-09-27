@@ -5,8 +5,9 @@ import { parseMom, type Mom } from '../domain/mom';
 import { segmentsFromTranscription, type Segment } from '../domain/transcript';
 import { type Person } from '../data/directory';
 import { DICT, type Dict, type LangCode } from '../i18n';
+import { jobQueryPath, reviewEntryDecision, reviewJobIdFromSearch } from '../lib/reviewRoute';
 
-export type Screen = 'upload' | 'recording' | 'processing' | 'failed' | 'review' | 'done';
+export type Screen = 'upload' | 'recording' | 'processing' | 'restoring-review' | 'failed' | 'review' | 'done';
 export type Outcome = 'download' | 'sent' | 'discard';
 /** Text edits made in Edit mode, keyed by path, e.g. `summary`, `decisions.0.text`. */
 export type Edits = Record<string, string>;
@@ -23,6 +24,7 @@ export interface State {
   uploadedAt: number | null;
   readyAt: number | null;
   error: string | null;
+  errorRetryable: boolean;
   segments: Segment[];
   mom: Mom | null;
   reviewContext: ReviewContextResponse | null;
@@ -41,7 +43,7 @@ export interface State {
 
 const initial = (lang: LangCode, openedAt = Date.now()): State => ({
   lang, screen: 'upload', serverOnline: null, jobId: null, fileName: null, job: null, seen: {}, uploadedAt: null, readyAt: null,
-  error: null, segments: [], mom: null, reviewContext: null, edits: {}, reviewEditing: false, participantEditing: false, approvalLocked: false, recipients: [], deliveredRecipientCount: 0, portalSecs: 0,
+  error: null, errorRetryable: false, segments: [], mom: null, reviewContext: null, edits: {}, reviewEditing: false, participantEditing: false, approvalLocked: false, recipients: [], deliveredRecipientCount: 0, portalSecs: 0,
   portalOpenedAt: openedAt, outcome: null, exported: null, toast: null,
 });
 
@@ -53,7 +55,7 @@ type Act =
   | { type: 'job'; job: JobStatusResponse }
   | { type: 'segments'; segments: Segment[] }
   | { type: 'ready'; mom: Mom; segments: Segment[]; reviewContext: ReviewContextResponse }
-  | { type: 'failed'; error: string }
+  | { type: 'failed'; error: string; retryable?: boolean }
   | { type: 'edits'; edits: Edits }
   | { type: 'reviewEditing'; editing: boolean }
   | { type: 'participantEditing'; editing: boolean }
@@ -76,7 +78,7 @@ function reducer(s: State, a: Act): State {
     case 'ready': {
       return { ...s, screen: 'review', mom: a.mom, segments: a.segments, reviewContext: a.reviewContext, readyAt: Date.now(), edits: {}, reviewEditing: false, participantEditing: false, approvalLocked: false, recipients: [] };
     }
-    case 'failed': return { ...s, screen: 'failed', error: a.error };
+    case 'failed': return { ...s, screen: 'failed', error: a.error, errorRetryable: a.retryable ?? false };
     case 'edits': return { ...s, edits: a.edits };
     case 'reviewEditing': return { ...s, reviewEditing: a.editing };
     case 'participantEditing': return { ...s, participantEditing: a.editing };
@@ -109,6 +111,18 @@ const LANG_KEY = 'smom-lang';
 const savedLang = (): LangCode => {
   try { const v = localStorage.getItem(LANG_KEY); return v === 'ru' || v === 'en' ? v : 'ro'; } catch { return 'ro'; }
 };
+
+const initialFromLocation = (): State => {
+  const state = initial(savedLang());
+  const jobId = typeof window === 'undefined' ? null : reviewJobIdFromSearch(window.location.search);
+  return jobId
+    ? { ...state, screen: 'restoring-review', jobId }
+    : state;
+};
+
+function replaceJobQuery(name: 'review' | 'approved', jobId: string): void {
+  history.replaceState(null, '', jobQueryPath(window.location.href, name, jobId));
+}
 
 /** Writes Edit-mode text overrides into a MoM copy. */
 export function applyEdits(mom: Mom, edits: Edits): Mom {
@@ -154,7 +168,7 @@ const POLL_MS = 2000;
 const HEALTH_MS = 15000;
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [s, dispatch] = useReducer(reducer, undefined, () => initial(savedLang()));
+  const [s, dispatch] = useReducer(reducer, undefined, initialFromLocation);
   const l = DICT[s.lang];
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -172,7 +186,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Dev shortcut (mock mode only): ?demo=review opens the review screen with the example data.
   useEffect(() => {
-    if (API_MODE === 'mock' && new URLSearchParams(location.search).get('demo') === 'review' && !new URLSearchParams(location.search).has('approved')) {
+    const params = new URLSearchParams(location.search);
+    if (API_MODE === 'mock' && params.get('demo') === 'review' && !params.has('approved') && !params.has('review')) {
       dispatch({ type: 'uploaded', jobId: 'demo', fileName: 'Medpark_audio.m4a' });
     }
   }, []);
@@ -202,10 +217,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => { alive = false; window.clearInterval(t); };
   }, []);
 
-  // Job polling while processing
+  // Job polling while processing or restoring a stable review link.
   useEffect(() => {
-    if (s.screen !== 'processing' || !s.jobId) return;
+    if ((s.screen !== 'processing' && s.screen !== 'restoring-review') || !s.jobId) return;
     const jobId = s.jobId;
+    const restoring = s.screen === 'restoring-review';
     let alive = true;
     let gotTranscript = false;
     const tick = async () => {
@@ -213,15 +229,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const job = await api.getJob(jobId);
         if (!alive) return;
         dispatch({ type: 'job', job });
-        if (job.status === 'FAILED') {
-          dispatch({ type: 'failed', error: job.error?.message ?? job.stage });
+        const entry = reviewEntryDecision(job);
+        if (entry === 'approved') {
+          const [approved, reviewContext] = await Promise.all([
+            api.getApprovedMom(jobId),
+            api.getReviewContext(jobId).catch(() => null),
+          ]);
+          if (!alive) return;
+          let elapsedSecs = 0;
+          try { elapsedSecs = Number(sessionStorage.getItem(`smom-elapsed-${jobId}`)) || 0; } catch { /* private mode */ }
+          try { replaceJobQuery('approved', jobId); } catch { /* history is optional */ }
+          dispatch({ type: 'restored', jobId, exported: parseMom(approved.document), reviewContext, elapsedSecs, deliveredRecipientCount: approved.recipients.length });
+          return;
+        }
+        if (entry === 'failed') {
+          dispatch({
+            type: 'failed',
+            error: job.error?.message ?? job.stage,
+            retryable: job.stage !== 'delivery_failed' && (job.error?.retryable ?? false),
+          });
           return;
         }
         if (job.artifacts.transcriptAvailable && !gotTranscript) {
           gotTranscript = true;
           api.getTranscript(jobId).then((transcription) => alive && dispatch({ type: 'segments', segments: segmentsFromTranscription(transcription) })).catch(() => { gotTranscript = false; });
         }
-        if (job.status === 'AWAITING_REVIEW' && job.artifacts.momAvailable && job.artifacts.reviewContextAvailable) {
+        if (entry === 'review') {
           const [momResult, transcription, reviewContext] = await Promise.all([
             api.getMom(jobId),
             api.getTranscript(jobId),
@@ -238,7 +271,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       } catch (e) {
         if (!alive) return;
-        if (e instanceof ApiError && e.status === 404) { dispatch({ type: 'failed', error: e.message }); return; }
+        if (e instanceof ApiError && e.status === 404) { dispatch({ type: 'failed', error: e.message, retryable: false }); return; }
+        if (restoring && e instanceof ApiError) { dispatch({ type: 'failed', error: e.message, retryable: e.retryable }); return; }
         // Network blip: keep polling.
       }
       if (alive) timer = window.setTimeout(tick, POLL_MS);
@@ -256,6 +290,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast,
     async upload(file, name) {
       const job = await api.createJob(file, name);
+      try { replaceJobQuery('review', job.jobId); } catch { /* history is optional */ }
       dispatch({ type: 'uploaded', jobId: job.jobId, fileName: name });
     },
     async retry() {
@@ -289,7 +324,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const elapsedSecs = Math.max(0, Math.round((clickedAt - s.portalOpenedAt) / 1000));
         try {
           sessionStorage.setItem(`smom-elapsed-${s.jobId}`, String(elapsedSecs));
-          history.replaceState(null, '', `?approved=${encodeURIComponent(s.jobId)}`);
+          replaceJobQuery('approved', s.jobId);
         } catch { /* storage and history are optional for this session */ }
         if (approved.skippedRecipients.length) toast(l.rc_skipped(approved.skippedRecipients.length));
         dispatch({ type: 'done', outcome: approved.recipients.length ? 'sent' : 'download', exported: parseMom(approved.document), deliveredRecipientCount: approved.recipients.length, clickedAt });

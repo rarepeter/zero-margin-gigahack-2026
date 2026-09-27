@@ -36,7 +36,7 @@ function statusAt(elapsed: number, fail: boolean): { status: JobStatus; stage: s
   if (elapsed < T_TRANSCRIBING) return { status: 'QUEUED', stage: 'queued' };
   if (elapsed < T_GENERATING) return { status: 'TRANSCRIBING', stage: 'transcription' };
   if (elapsed < T_READY) return { status: 'GENERATING_MOM', stage: 'mom_generation' };
-  return { status: 'AWAITING_REVIEW', stage: 'review' };
+  return { status: 'AWAITING_REVIEW', stage: 'review_ready' };
 }
 
 export const mockApi: SecureMomApi = {

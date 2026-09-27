@@ -80,7 +80,7 @@ function ProcessingSteps({ live }: { live: boolean }) {
 function Stepper() {
   const { s, l } = useApp();
   const [open, setOpen] = useState(false);
-  const idx = { upload: 0, recording: 0, processing: 1, failed: 1, review: 2, done: 3 }[s.screen];
+  const idx = { upload: 0, recording: 0, processing: 1, 'restoring-review': 2, failed: 1, review: 2, done: 3 }[s.screen];
   const done = s.screen === 'done';
   const procTotal = s.readyAt && s.uploadedAt ? mmss((s.readyAt - s.uploadedAt) / 1000) : null;
 

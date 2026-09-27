@@ -5,6 +5,7 @@ import { DoneScreen } from './screens/DoneScreen';
 import { FailedScreen } from './screens/FailedScreen';
 import { ProcessingScreen } from './screens/ProcessingScreen';
 import { RecordingScreen } from './screens/RecordingScreen';
+import { ReviewRestoreScreen } from './screens/ReviewRestoreScreen';
 import { ReviewScreen } from './screens/ReviewScreen';
 import { UploadScreen } from './screens/UploadScreen';
 import { useApp, type Screen } from './state/store';
@@ -13,6 +14,7 @@ const SCREENS: Record<Screen, () => React.JSX.Element | null> = {
   upload: UploadScreen,
   recording: RecordingScreen,
   processing: ProcessingScreen,
+  'restoring-review': ReviewRestoreScreen,
   failed: FailedScreen,
   review: ReviewScreen,
   done: DoneScreen,

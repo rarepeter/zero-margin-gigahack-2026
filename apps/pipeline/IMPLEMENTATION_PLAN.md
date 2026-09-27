@@ -388,10 +388,11 @@ was returned through its separate endpoint.
 
 Status: next implementation iteration
 
-The immediate next increment connects the portal UI to the existing
-review-ready backend boundary. During this increment, a developer or test flow
-may open the portal with a known pipeline job ID; automatic review-link creation
-and email notification remain paused below.
+The portal is connected to the existing review-ready backend boundary. A
+developer or notification may open the router-free portal with
+`?review=<jobId>`; the fresh session loads the durable draft, transcript, and
+review context only at `AWAITING_REVIEW / review_ready`. Email notification
+remains paused below.
 
 The portal should:
 
@@ -411,8 +412,8 @@ approval, download, export, and distribution are not silently included.
 
 # Post-MoM review and delivery requirements
 
-Status: approval and final-delivery slice implemented; notification and live
-directory remain pending
+Status: stable review link, live demo directory, approval, and final-delivery
+slice implemented; notification remains pending
 
 These items extend the workflow from a review-ready MoM through author
 notification, portal review, recipient selection, approval, and local delivery.
@@ -421,16 +422,16 @@ the demonstration machine is disconnected from the internet.
 
 ## Stable internal review link
 
-- [ ] Define a configurable internal portal base URL suitable for the offline
+- [x] Define a configurable internal portal base URL suitable for the offline
   demonstration environment.
-- [ ] Generate a stable review URL that resolves a pipeline `jobId`, for example
-  `/review/{jobId}`, without embedding meeting content or local filesystem
-  paths.
-- [ ] Decide whether the URL belongs only in the notification message or is
-  also persisted in schema-version-1 review context.
-- [ ] Keep authorization enforcement outside the MVP while documenting the
+- [x] Generate a stable `?review=<jobId>` URL without embedding meeting content
+  or local filesystem paths; preserve configured base paths and encode job IDs.
+- [x] Keep the URL out of schema-version-1 review context. It will be derived
+  into the persisted notification intent in the notification increment.
+- [x] Keep authorization enforcement outside the MVP while documenting the
   assumption that the hospital platform would authorize the authenticated user.
-- [ ] Test URL generation for configured base paths, ports, and job IDs.
+- [x] Test URL generation for configured base paths, ports, job IDs, unsafe
+  hosts, credentials, existing query strings, and fragments.
 
 ## Local notification email
 

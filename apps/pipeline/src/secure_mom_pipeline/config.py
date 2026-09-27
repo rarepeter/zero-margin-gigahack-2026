@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .review_url import normalize_portal_base_url
+
 
 def _path_from_env(name: str, fallback: str) -> Path:
     return Path(os.getenv(name, fallback)).expanduser()
@@ -86,6 +88,9 @@ class Settings:
     api_port: int = int(os.getenv("PIPELINE_API_PORT", "8000"))
     api_prefix: str = os.getenv("PIPELINE_API_PREFIX", "/api/v1")
     routes: ApiRoutes = field(default_factory=ApiRoutes)
+    portal_base_url: str = normalize_portal_base_url(
+        os.getenv("PIPELINE_PORTAL_BASE_URL", "http://127.0.0.1:3100")
+    )
 
     # TODO(discovery): choose machine-specific locations before the demo.
     storage_root: Path = _path_from_env("PIPELINE_STORAGE_ROOT", "runtime/data")

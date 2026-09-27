@@ -141,6 +141,13 @@ At the review-ready checkpoint, the pipeline also persists compact
 submitter email and links to the separately loaded structured transcript and
 draft MoM resources. This data contract does not add a new workflow state.
 
+The demo pipeline also owns a validated loopback portal base URL. It can build
+a stable `?review=<jobId>` navigation link without embedding meeting content,
+submitter data, or local filesystem paths. A fresh portal session uses the
+existing job and artifact endpoints and enters Review only for the durable
+`AWAITING_REVIEW / review_ready` checkpoint. The link is intended for the local
+notification flow and is not an authentication or authorization mechanism.
+
 The exact request and result shapes belong to their adapters. The audio service
 must have operating-system permission to read its recording input path. The
 text service does not need access to the pipeline's filesystem.

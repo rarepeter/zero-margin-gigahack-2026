@@ -8,6 +8,7 @@
     "dev:live": "vite --mode live",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
     "typecheck": "tsc -b --noEmit",
     "gen:api": "openapi-typescript openapi/openapi.json -o src/api/schema.d.ts",
     "sync:api": "cp ../pipeline/docs/openapi/pipeline.openapi.json openapi/openapi.json && npm run gen:api"

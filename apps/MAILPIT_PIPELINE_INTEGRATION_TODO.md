@@ -1,93 +1,364 @@
-# Temporary — Mailpit/pipeline integration checklist
+# Mailpit completion implementation plan
 
-Delete this file after the Mailpit delivery flow is implemented and verified.
+Status: current implementation baseline verified on 27 September 2026; remaining
+work is ordered below by demo value and dependency.
 
-## Already available
+This is the authoritative plan for completing the local email flow. Delete it
+after the demo-critical definition of done has been verified offline and move
+any deliberately deferred items to the normal product backlog.
 
-- `apps/mailpit/` provides a Docker-based, loopback-only local Mailpit SMTP
-  environment on `127.0.0.1:1025` and inbox UI on `127.0.0.1:8025`.
-- The pipeline already persists the server-side submitting-author email and
-  reaches `AWAITING_REVIEW` after a draft MoM is available.
-- The portal has a temporary static recipient picker.
+## Goal and boundaries
 
-## Remaining implementation work
+Complete the local flow without adding a cloud API, external SMTP server,
+external directory, runtime download, or internet dependency:
 
-### 1. Add pipeline mail configuration and adapter — implemented
+```text
+draft MoM becomes review-ready
+  -> one safe local notification to the configured submitting author
+  -> author opens a stable local review URL
+  -> author approves with zero or more recipients
+  -> zero recipients: approve and download
+  -> one or more accepted recipients: send the approved MoM through local SMTP
+```
 
-- Add `PIPELINE_MAIL_HOST`, `PIPELINE_MAIL_PORT`, and any bounded-timeout
-  settings to the pipeline configuration.
-- Implement a replaceable local SMTP adapter using Python's standard
-  `smtplib` and `EmailMessage`; do not make the pipeline depend on Mailpit's
-  HTTP API.
-- Configure the demo adapter to send to `127.0.0.1:1025` without STARTTLS.
-- Do not add cloud email APIs, external SMTP endpoints, relaying, or
-  forwarding.
+The recording remains the source of truth. Notification messages must not
+contain transcript or MoM content. Final-delivery messages may contain only the
+approved MoM snapshot. Authentication, SSO, real institutional directory
+integration, and a production send-as policy remain outside the hackathon MVP.
 
-### 2. Notify the submitting author when review begins
+## Current baseline
 
-- After `mom/draft.json` and `review/context.json` are durable, create a
-  persisted notification intent and send exactly one local email to the
-  server-side `submitted_by.email`.
-- The notification must contain only safe text, a local review link, and a job
-  identifier; it must not contain the MoM or transcript.
-- Persist a stable message ID and metadata-only result so callback replay or a
-  restart cannot create duplicate notifications.
-- Record a clear retryable/non-retryable delivery failure without discarding a
-  valid draft.
+### Implemented
 
-### 3. Introduce a server-owned recipient directory
+- [x] Loopback-only Mailpit environment under `apps/mailpit`, configured for
+  SMTP on `127.0.0.1:1025` and its UI on `127.0.0.1:8025`.
+- [x] Replaceable standard-library SMTP adapter with bounded timeout and no
+  Mailpit HTTP, relay, forwarding, or cloud dependency.
+- [x] Persisted server-side demo submitter identity.
+- [x] Server-owned local demo directory and
+  `GET /api/v1/directory?q=...`, with name, email, and title matching and a
+  result limit.
+- [x] Recipient picker calls the local directory endpoint. The frontend static
+  list is now a fallback, not the primary live source.
+- [x] One approval endpoint for both zero-recipient approval and conditional
+  final delivery.
+- [x] Recipient normalization, de-duplication, allowed-domain enforcement, and
+  soft reporting of skipped addresses.
+- [x] Immutable approved MoM snapshot, stable final-delivery Message-ID,
+  metadata-only delivery result, successful-replay idempotency, and retry after
+  a controlled SMTP failure.
+- [x] Deterministic structured-text approved-MoM message using the persisted,
+  configured demo submitter as `From`.
+- [x] Portal success and failure states driven by the approval API result.
+- [x] Automated baseline: 62 pipeline tests pass; frontend tests, typecheck, and
+  production build pass.
 
-- Store a minimal local directory with immutable IDs, display names, emails,
-  and optional role/title. Use only test addresses such as `@medpark.test` in
-  the demo.
-- Add a surname-search endpoint, e.g. `GET /api/v1/directory?q=popescu`, with
-  a small result limit.
-- Replace the browser-only static directory as the source of truth.
-- Validate submitted recipient IDs on the server; if typed addresses remain
-  supported, restrict and validate them against the permitted internal domain.
+### Not implemented or not live-verified
 
-### 4. Add approval and final delivery — implemented
+- [x] Stable URL implementation that restores an unapproved review-ready job
+  from a fresh session. Manual browser acceptance remains below.
+- [ ] Persisted draft-ready notification intent, sending, result, and restart
+  behavior.
+- [ ] Live Mailpit verification, Mailpit downtime/recovery, and a complete
+  Wi-Fi-disabled run. Docker is not installed in the current environment.
+- [ ] Immutable directory-person IDs and ID-based approval validation.
+- [ ] Server-readable PDF/DOCX artifact and final-message attachment.
+- [ ] Institutional send-as/delegated-sending policy beyond the single demo
+  identity.
 
-- Keep the existing `POST /api/v1/jobs/{jobId}/approve` request for both
-  branches. An empty recipient list approves without email; a non-empty list
-  continues into local delivery in the same operation.
-- Persist one immutable approved MoM snapshot with the accepted and softly
-  skipped recipients. Invalid or out-of-policy domains do not block approval;
-  the backend omits them from SMTP delivery and reports them in the response.
-- Compose the final email from the approved MoM and supported meeting
-  information only; do not invent missing metadata.
-- Do not attach the browser-print PDF. Attach a final document only after a
-  server-readable PDF/DOCX export contract exists.
-- Set `From` to the stored submitting-author email only after server-side
-  authorization validates that identity. Never accept an arbitrary sender from
-  the browser.
-- Mark `COMPLETED` only after local SMTP accepts the delivery request. Preserve
-  the approved artifact if delivery fails; an identical `/approve` request
-  retries that same delivery.
+## Priority and implementation order
 
-### 5. Connect the review portal — partially implemented
+P0 is required to demonstrate the complete challenge email flow. P1 hardens
+the current demo without changing its product shape. P2 is optional for the
+hackathon and must not delay P0 verification.
 
-- Change recipient autocomplete to call the local directory endpoint.
-- Change the same final action by recipient count: **Approve and download**
-  with no recipients and **Approve and send** with one or more.
-- Show delivery success only after the approval API responds
-  successfully; otherwise show a clear retryable error.
+## P0.1 — Stable local review URL and fresh-session restoration
 
-### 6. Verify locally and offline
+Status: implemented and covered by automated URL/state tests; manual
+fresh-browser acceptance remains pending because no controllable browser was
+available in the implementation environment.
 
-- Start Mailpit from `apps/mailpit` with `make verify`.
-- Confirm draft-ready notification reaches the submitting author's test
-  address in the Mailpit UI.
-- Confirm the approved MoM message has the submitting author in `From`, the
-  selected people in `To`, and the final document attachment when implemented.
-- Test duplicate callback replay, invalid/external recipient soft skipping, Mailpit
-  downtime, and a full Wi-Fi-disabled demo run.
-- Run the pipeline and frontend automated tests, add integration coverage for
-  the mail adapter and delivery state, then regenerate relevant OpenAPI files.
+The notification cannot be useful until its link can restore the review screen
+without relying on in-memory state from the upload tab.
 
-## Definition of done
+### Contract
 
-With Wi-Fi disabled, a recording reaches review; the submitting author receives
-one local ready-for-review email; the author finds recipients by surname,
-approves the MoM, and Mailpit shows the final message from that author to the
-selected recipients. No external service receives meeting data.
+- [x] Add `PIPELINE_PORTAL_BASE_URL`, defaulting to
+  `http://127.0.0.1:3100`, to pipeline configuration and `.env.example`.
+- [x] For the current router-free SPA, use the provisional stable URL shape
+  `http://127.0.0.1:3100/?review=<jobId>`. Do not embed content, filesystem
+  paths, submitter information, or credentials in the URL.
+- [x] Normalize the configured base URL and append the encoded job ID using a
+  URL builder rather than string concatenation. For the demo profile, reject
+  non-loopback hosts so configuration cannot accidentally create an external
+  runtime link.
+- [x] Treat this as a navigation link, not authorization. Document that a real
+  hospital deployment must authorize the viewer; authentication remains out of
+  MVP scope.
+
+### Frontend work
+
+- [x] On initial load, recognize `?review=<jobId>` before the normal upload
+  flow. It must not conflict with the existing `?approved=<jobId>` completion
+  link.
+- [x] Fetch job status, draft MoM, transcript, and review context from the local
+  API and hydrate the existing Review screen.
+- [x] Enter Review only for `AWAITING_REVIEW / review_ready`. Render an honest
+  loading, not-found, not-ready, failed, already-approved, or local-server-
+  unavailable outcome for every other state.
+- [x] Reuse the existing MoM/transcript mapping and review editing behavior;
+  do not add a second review implementation.
+- [x] Preserve the review URL on reload until approval succeeds. After
+  job creation, write `?review=<jobId>` into the current tab; after approval,
+  replace it with the existing `?approved=<jobId>` URL.
+
+### Tests and acceptance
+
+- [x] Dependency-free frontend tests cover query precedence, empty targets,
+  path preservation, encoding, and decisions for review-ready, not-ready,
+  completed, and failed jobs. The existing API error branch handles not-found
+  and retryability without inventing success.
+- [ ] Opening the review URL in a private/fresh browser session goes directly
+  to the correct draft and permits the normal approval flow.
+- [x] `npm run typecheck` and a live-mode production build pass.
+
+## P0.2 — Persisted draft-ready notification
+
+Notification creation begins only after `mom/draft.json` and
+`review/context.json` are durable and the state is ready to advance to
+`AWAITING_REVIEW / review_ready`.
+
+### Data and configuration
+
+- [ ] Add a configured system notification sender, defaulting to a clearly
+  local test identity such as `secure-mom@medpark.test`. Do not send the
+  author's notification from the author's own address.
+- [ ] Add schema-versioned `NotificationIntent` and `NotificationResult`
+  models. The intent contains only job ID, recipient, generic subject, stable
+  review URL, stable Message-ID, and creation time. The result contains only
+  status, attempt time/count, Message-ID, safe error code, retryability, and
+  whether SMTP acceptance is known or uncertain.
+- [ ] Persist them as `notification/intent.json` and
+  `notification/result.json`, referenced by optional descriptors in job state.
+  Do not persist a transcript excerpt, MoM text, meeting subject, message body,
+  or credentials in either artifact.
+- [ ] Use a deterministic Message-ID derived from the job ID and message type,
+  distinct from the final-delivery Message-ID.
+
+### Lifecycle
+
+- [ ] In the MoM callback transaction, write the draft, review context, and
+  notification intent before publishing `AWAITING_REVIEW / review_ready`.
+  Callback replay must return the existing checkpoint and never create another
+  intent.
+- [ ] Make the pipeline worker own notification submission. Add
+  `AWAITING_REVIEW / review_ready` jobs with an unsent intent to the worker's
+  actionable scan without blocking unrelated jobs.
+- [ ] Compose a generic message such as “Your Secure MOM draft is ready for
+  review,” containing only the job ID and local review link. Route it through
+  the existing `LocalMailAdapter`.
+- [ ] Keep the job at `AWAITING_REVIEW / review_ready` regardless of
+  notification success or failure. The draft must remain reviewable directly
+  from the portal.
+- [ ] Record metadata-only operations for intent creation, attempt start,
+  acceptance, known failure, and uncertain outcome.
+
+### Idempotency and recovery policy
+
+SMTP and filesystem persistence cannot form one atomic transaction. A stable
+Message-ID helps traceability but does not itself make SMTP exactly-once. The
+implementation must therefore prefer avoiding duplicate notifications and
+must not claim a stronger guarantee than it provides.
+
+- [ ] Atomically claim a pending intent before connecting to SMTP. Normal
+  callback replay, worker scans, and restarts after a durable accepted result
+  must perform no second submission.
+- [ ] Extend mail errors if necessary to distinguish “known not accepted” from
+  “acceptance uncertain.” A connection refusal before submission may be
+  retried with the same Message-ID within a small configured attempt limit.
+- [ ] If the process stops during submission, or SMTP may have accepted the
+  message before the client lost confirmation, persist or reconstruct an
+  `unknown` outcome and do not resend automatically. The demo operator may
+  inspect Mailpit by Message-ID and explicitly reconcile it.
+- [ ] Do not convert a notification failure into the job's normal `FAILED`
+  state, because processing succeeded and a valid review draft exists.
+
+### Tests and acceptance
+
+- [ ] Unit-test safe message composition, configured system sender, recipient
+  source, stable URL, and stable Message-ID.
+- [ ] Pipeline tests cover first send, callback replay, accepted-result
+  restart, known pre-acceptance failure and bounded retry, uncertain outcome,
+  and concurrent/duplicate worker invocation.
+- [ ] Tests assert that notification artifacts and events contain no transcript
+  or MoM content.
+- [ ] Regenerate pipeline OpenAPI only if a public schema changes; notification
+  artifacts should remain internal unless the UI genuinely needs their state.
+
+## P0.3 — Live Mailpit and offline end-to-end verification
+
+This phase requires Docker Desktop and the pinned Mailpit image on the actual
+demo Mac. It cannot be completed in the current environment until Docker is
+installed.
+
+### One-time online preparation
+
+- [ ] Install and start Docker Desktop.
+- [ ] Run `make config` and `make preload` in `apps/mailpit` while internet is
+  available.
+- [ ] Confirm `axllent/mailpit:v1.31.2` is present locally and preserve the
+  pinned tag.
+- [ ] Create the ignored local `.env` from `.env.example`; do not commit it or
+  Mailpit runtime data.
+
+### Live acceptance sequence
+
+- [ ] Start Mailpit with `make verify` and run the non-sensitive `make smoke`
+  check.
+- [ ] Run a new meeting to `AWAITING_REVIEW`; verify exactly one draft-ready
+  message in the Mailpit UI with the configured system `From`, submitting
+  author in `To`, generic body, stable Message-ID, job ID, and working local
+  review link.
+- [ ] Approve with no recipients and verify no final-delivery SMTP message.
+- [ ] Run another meeting, select multiple internal recipients, and verify the
+  final message's submitting-author `From`, normalized `To`, structured body,
+  stable Message-ID, and one captured message after request replay.
+- [ ] Include malformed, duplicate, and external addresses; verify only
+  accepted internal addresses reach SMTP and skipped values are reported.
+- [ ] Stop Mailpit before final delivery. Verify a safe retryable API error,
+  preserved `mom/approved.json`, and metadata-only failure result. Restart
+  Mailpit and repeat the identical approval; verify one accepted final message.
+- [ ] Exercise notification downtime according to the known-failure/unknown-
+  outcome policy without losing access to the draft.
+- [ ] Restart the API and worker at notification and delivery checkpoints and
+  verify the documented recovery behavior.
+
+### Offline acceptance sequence
+
+- [ ] Disconnect Wi-Fi and any wired network.
+- [ ] Start the frontend, pipeline API, worker, both local ML services, and
+  Mailpit using only preinstalled dependencies and images.
+- [ ] Process representative Romanian/Russian/English-switching audio through
+  notification, fresh-session review, approval, local final delivery, and
+  download.
+- [ ] Confirm no runtime request targets a non-loopback host and record total
+  processing time and test hardware.
+- [ ] Save non-sensitive screenshots or a demo checklist for the pitch; do not
+  commit captured meeting messages or Mailpit's database.
+
+## P1 — Directory hardening
+
+The current server-owned directory and live autocomplete are sufficient for
+the static hackathon demo. These changes improve authority and identity
+stability but should follow P0.
+
+- [ ] Add immutable local person IDs to `DirectoryPerson` and the server-owned
+  data source. Keep `@medpark.test` addresses for the demo.
+- [ ] Decide and document the approval migration: either submit directory IDs
+  plus a separate typed-address field, or continue submitting normalized email
+  addresses. Do not silently interpret arbitrary strings as IDs.
+- [ ] If IDs are adopted, resolve them server-side at approval time, persist
+  the resolved ID/email snapshot, reject unknown IDs, and continue soft domain
+  filtering only for explicitly supported typed addresses.
+- [ ] Remove the static fallback from **live** mode. A directory outage should
+  show “local directory unavailable” rather than silently presenting a stale
+  browser list. Keep deterministic demo values inside mock mode.
+- [ ] Add API and frontend tests for surname search, ID stability, unknown IDs,
+  duplicate selections, directory outage, and typed-address policy.
+- [ ] Regenerate OpenAPI, synchronize frontend types, and update the frontend
+  README/API alignment table.
+
+## P2.1 — Server-readable final document attachment
+
+This is not required for the current structured-text email demo. Do not attach
+the browser-print output: the pipeline cannot read or verify it.
+
+- [ ] Confirm with the team whether PDF or DOCX is the required distributable
+  format. Record the decision before selecting a renderer.
+- [ ] Define a local exporter interface that consumes only the immutable
+  `mom/approved.json` snapshot and produces deterministic server-readable
+  bytes.
+- [ ] Select and lock an offline-capable renderer. Vendor or preinstall all
+  required Romanian and Cyrillic fonts and verify licensing, pagination, and
+  glyph coverage before the demo.
+- [ ] Persist the generated artifact under the job directory with media type,
+  byte count, and SHA-256 descriptor. Never regenerate it from a later draft.
+- [ ] Extend `LocalMailMessage` and the SMTP adapter with an explicit attachment
+  model, safe filename handling, and size limits.
+- [ ] Attach only the persisted approved artifact and test MIME type, filename,
+  bytes/hash, multilingual rendering, retry behavior, and absence when export
+  fails.
+- [ ] Decide whether export failure blocks final delivery or falls back to the
+  structured-text body. The UI must describe the actual outcome and must not
+  claim an attachment that was not sent.
+
+## P2.2 — Sender policy beyond the demo
+
+The existing fixed identity check is appropriate only for the hackathon
+profile.
+
+- [ ] Keep the browser unable to provide `From`.
+- [ ] Document the demo policy explicitly: system sender for draft-ready
+  notifications; configured demo submitting author for approved-MoM delivery.
+- [ ] Before institutional deployment, choose authenticated SMTP submission,
+  an on-premise relay allowlist, or another locally authorized delegated-send
+  mechanism with the hospital mail administrator.
+- [ ] Bind submitter identity to authenticated server-side context and enforce
+  per-user send-as rights. Full SSO remains a separate product decision.
+- [ ] Add audit-safe sender authorization events without credentials or
+  meeting content.
+
+## Documentation and contract reconciliation
+
+Complete these updates in the same increment as the behavior they describe:
+
+- [ ] Update `apps/mailpit/README.md` with notification configuration,
+  Message-ID inspection, recovery semantics, and the final live commands.
+- [ ] Update pipeline `.env.example`, README, architecture, scope, API spec,
+  artifact schemas, implementation plan, and technical decision log.
+- [ ] Correct the frontend README and API-alignment documentation: the local
+  directory endpoint is already implemented and live autocomplete no longer
+  uses the browser list as its primary source.
+- [ ] Keep `apps/MAILPIT_RECIPIENT_DELIVERY_PLAN.md` as the implemented
+  approval/delivery contract unless that contract actually changes.
+- [ ] Re-run pipeline tests, source compilation, OpenAPI export/synchronization,
+  frontend typecheck, live-mode build, and the offline smoke checklist after
+  every public-contract change.
+
+## Expected implementation touchpoints
+
+Keep each increment narrow; do not mix P1 or P2 contract changes into the P0
+notification work.
+
+| Increment | Primary files or modules |
+| --- | --- |
+| P0.1 review link | `apps/pipeline/src/secure_mom_pipeline/config.py`, pipeline `.env.example`, frontend `src/state/store.tsx`, and focused frontend restoration tests |
+| P0.2 notification models and rendering | Pipeline `models.py`, a small notification composer beside `mom_email.py`, `mail_adapter.py` only if acceptance classification must expand, and artifact-schema documentation |
+| P0.2 notification lifecycle | Pipeline `api.py` for durable intent creation, `worker.py` for submission/recovery, `job_store.py` only if a new atomic claim primitive is required, and pipeline tests |
+| P0.3 live proof | `apps/mailpit/README.md`, its existing Makefile/scripts where necessary, and a non-sensitive manual smoke checklist |
+| P1 directory hardening | Pipeline `directory.py`, `models.py`, `api.py`, OpenAPI snapshot, frontend API types, recipient picker, and mock/live directory behavior |
+| P2 attachment | A new server-side exporter boundary, `models.py`, `mail_adapter.py`, `mom_email.py`, approval flow, artifact documentation, and multilingual render fixtures |
+
+## Demo-critical definition of done
+
+P0 is complete only when all of the following are demonstrated on the target
+Mac with networking disabled:
+
+1. A new recording reaches `AWAITING_REVIEW / review_ready` with durable draft,
+   review context, and one notification intent.
+2. Mailpit contains one safe draft-ready message to the configured submitting
+   author, and normal callback/restart replay does not create another.
+3. Its stable local link opens the correct draft in a fresh browser session.
+4. Approval with no accepted recipients performs no final SMTP submission.
+5. Approval with accepted recipients produces one local final message with the
+   authorized submitting author in `From`, the accepted people in `To`, and
+   content derived only from the approved MoM.
+6. Missing or invalid recipients, Mailpit downtime, retries, and process
+   restarts preserve honest state and never discard a valid draft or approved
+   snapshot.
+7. The full run uses no external service and all automated tests and builds
+   pass.
+
+Immutable recipient IDs, a PDF/DOCX attachment, institutional SSO, and a real
+delegated-sending policy are explicitly not required to declare the hackathon
+P0 email flow complete.

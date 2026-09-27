@@ -11,6 +11,7 @@ cd apps/secure-mom-frontend
 npm ci
 npm run dev        # http://127.0.0.1:3100 — MOCK mode, uses example data, no backend needed
 npm run dev:live   # http://127.0.0.1:3100 — LIVE mode, proxies to the Python server
+npm test           # dependency-free URL/restoration decision tests
 npm run build      # production build (mock by default; `npx vite build --mode live` for the real server) in dist/ (serve it from the Python server or any static host)
 ```
 
@@ -45,6 +46,16 @@ Mock-mode shortcuts:
 - Uploading a file whose name contains `fail` demonstrates the FAILED state and Retry.
 - An orange "Example data" badge in the top bar shows that you are in mock mode.
 
+Stable review links use `http://127.0.0.1:3100/?review=<jobId>`. In live mode,
+the portal writes this URL as soon as upload creates the job, so refreshing the
+same tab during processing or review restores that job instead of returning to
+Upload. Opening the link in a fresh session polls only the local API, restores
+the existing Review screen at `AWAITING_REVIEW / review_ready`, shows an honest
+waiting or offline state earlier in the workflow, and loads the approved
+completion view if the job is already complete. `?approved=<jobId>` takes
+precedence if both parameters are present. The link contains no meeting content
+or filesystem path and does not replace future authentication.
+
 ## Where the backend plugs in
 
 All server access goes through a single interface, `SecureMomApi`, in `src/api/types.ts`.
@@ -61,7 +72,7 @@ All server access goes through a single interface, `SecureMomApi`, in `src/api/t
 | Approve, optionally deliver | `approveMom` | `POST /api/v1/jobs/{id}/approve` | ✅; one endpoint with or without recipients |
 | Approved MoM | `getApprovedMom` | `GET /api/v1/jobs/{id}/approved-mom` | ✅ |
 | Discard | `discardJob` | No pipeline endpoint | ❌ **B6** |
-| Recipient directory | (local stub) | `src/data/directory.ts` → e.g. `GET /api/v1/directory?q=` | ❌ **TODO** |
+| Recipient directory | `searchDirectory` | `GET /api/v1/directory?q=` | ✅; server-owned demo source with browser fallback |
 
 See [API_ALIGNMENT.md](API_ALIGNMENT.md) for the component map, evidence, and
 numbered blocker queue. Blockers are intentionally being handled incrementally.
@@ -75,11 +86,11 @@ Behaviour while these endpoints are missing:
   deferred.
 - **Discard:** same pattern as export: the call is attempted, failures are logged, and the flow continues.
 - **Confidence:** transcript and MoM confidence come from the backend review context.
-- **Recipients:** the current local prototype directory uses `@medpark.test`
-  addresses. The backend softly skips malformed and non-allowlisted values
-  rather than blocking approval. Replacing the static list with an internal
-  directory is deferred; inferred meeting type does not change delivery
-  behaviour.
+- **Recipients:** live autocomplete calls the server-owned local demo directory
+  and retains the browser list only as a fallback. Demo values use
+  `@medpark.test`; the backend softly skips malformed and non-allowlisted
+  values rather than blocking approval. Immutable directory IDs remain
+  deferred; inferred meeting type does not change delivery behaviour.
 
 The backend-generated OpenAPI document is the source of truth. After it changes,
 sync the frontend snapshot and regenerate the types:

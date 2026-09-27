@@ -62,6 +62,22 @@ accepted recipients it sends through local SMTP and completes only after SMTP
 acceptance; a delivery failure preserves the approval for an identical-request
 retry. Manual ML retry and readiness remain mock or unimplemented.
 
+## Stable local review link
+
+The offline demo portal origin is configured separately from the API:
+
+```text
+PIPELINE_PORTAL_BASE_URL=http://127.0.0.1:3100
+```
+
+The pipeline validates this as an HTTP(S) loopback URL and normalizes its base
+path. `build_review_url(...)` produces a content-free
+`?review=<encoded-job-id>` link for the later draft-ready notification. The
+current router-free portal restores that job in a fresh session, opens Review
+only at `AWAITING_REVIEW / review_ready`, waits honestly for earlier states,
+and converts completed jobs to the existing approved-document view. The link
+is navigation, not authorization; authentication remains outside the MVP.
+
 ## Local mail adapter
 
 The pipeline uses a replaceable standard-library SMTP boundary for approved-MoM
