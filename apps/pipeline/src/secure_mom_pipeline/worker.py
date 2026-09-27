@@ -7,6 +7,7 @@ import fcntl
 import logging
 import time
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Protocol
 
@@ -21,6 +22,7 @@ from .intermediate_transformer import (
 from .job_store import InvalidJobStateError, JobStore
 from .logging_config import configure_logging
 from .models import (
+    ArtifactDescriptor,
     AudioSubmission,
     JobAttempts,
     JobError,
@@ -31,7 +33,7 @@ from .models import (
     utc_now,
 )
 from .text_service import (
-    MockTextService,
+    HttpTextService,
     TextConnectionError,
     TextSubmissionError,
 )
@@ -47,6 +49,9 @@ class TextService(Protocol):
         pipeline_job_id: str,
         text_path: Path,
         idempotency_key: str,
+        *,
+        transcription_path: Path,
+        uploaded_at: datetime,
     ) -> TextSubmission: ...
 
 
@@ -223,6 +228,14 @@ def _dispatch_audio(
         return True
 
 
+def _verified_artifact_path(
+    store: JobStore, directory: Path, descriptor: ArtifactDescriptor
+) -> Path:
+    """Check a persisted artifact against its descriptor and return its path."""
+    store.read_artifact_at(directory, descriptor)
+    return (directory / descriptor.path).resolve()
+
+
 def _dispatch_text(
     store: JobStore,
     job_id: str,
@@ -235,12 +248,17 @@ def _dispatch_text(
             state.status == JobStatus.TRANSCRIBING
             and state.stage == "text_input_ready"
             and state.artifacts.text_input is not None
+            and state.artifacts.transcription_source is not None
         ):
             return False
 
         try:
-            store.read_artifact_at(directory, state.artifacts.text_input)
-            text_path = (directory / state.artifacts.text_input.path).resolve()
+            text_path = _verified_artifact_path(
+                store, directory, state.artifacts.text_input
+            )
+            transcription_path = _verified_artifact_path(
+                store, directory, state.artifacts.transcription_source
+            )
         except (InvalidJobStateError, OSError, ValueError):
             _fail_job(
                 store,
@@ -280,7 +298,13 @@ def _dispatch_text(
         submission: TextSubmission | None = None
         for transport_attempt in (1, 2):
             try:
-                submission = text_service.submit(job_id, text_path, idempotency_key)
+                submission = text_service.submit(
+                    job_id,
+                    text_path,
+                    idempotency_key,
+                    transcription_path=transcription_path,
+                    uploaded_at=state.created_at,
+                )
                 failure = None
                 break
             except TextConnectionError as exc:
@@ -481,11 +505,10 @@ def process_one(
     store: JobStore,
     audio_service: AudioService,
     logger: logging.Logger,
-    text_service: TextService | None = None,
+    text_service: TextService,
     transformer: IntermediateTransformer | None = None,
 ) -> bool:
     """Advance one job through all immediately available checkpoints."""
-    text_service = text_service or MockTextService()
     transformer = transformer or StructuredTranscriptionTransformer()
 
     with _exclusive_worker(store) as acquired:
@@ -506,13 +529,6 @@ def process_one(
                 ensure_callback = getattr(audio_service, "ensure_callback", None)
                 if callable(ensure_callback) and state.model_jobs.audio is not None:
                     ensure_callback(state.job_id, state.model_jobs.audio)
-            if (
-                state.status == JobStatus.GENERATING_MOM
-                and state.stage == "text_processing"
-            ):
-                ensure_callback = getattr(text_service, "ensure_callback", None)
-                if callable(ensure_callback) and state.model_jobs.text is not None:
-                    ensure_callback(state.job_id, state.model_jobs.text)
 
         for state in states:
             if state.status != JobStatus.TRANSCRIBING:
@@ -572,14 +588,10 @@ def run() -> None:
         callback_delay_seconds=settings.mock_audio_callback_delay_seconds,
         callback_sender=callback_sender,
     )
-    text_callback_url_template = (
-        f"{settings.mock_text_callback_base_url.rstrip('/')}"
-        f"{settings.api_prefix}{settings.routes.mom_result}"
-    )
-    text_service = MockTextService(
-        callback_url_template=text_callback_url_template,
-        callback_delay_seconds=settings.mock_text_callback_delay_seconds,
-        callback_sender=callback_sender,
+    text_service = HttpTextService(
+        settings.text_service_url,
+        settings.text_service_jobs_route,
+        settings.text_service_timeout_seconds,
     )
     transformer = StructuredTranscriptionTransformer()
 

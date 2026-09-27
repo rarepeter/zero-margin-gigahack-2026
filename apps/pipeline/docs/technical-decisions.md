@@ -9,6 +9,7 @@ Statuses used here:
 - **Open** — requires an explicit decision.
 - **Deferred** — intentionally postponed and not required now.
 - **Out of scope** — the pipeline will not implement it for this MVP.
+- **Superseded** — replaced by the later decision it names.
 
 | ID | Status | Decision | Rationale or consequence |
 |---|---|---|---|
@@ -50,12 +51,15 @@ Statuses used here:
 | TD-034 | Provisional | Use an isolated mock audio adapter that acknowledges pickup and pushes a deterministic transcription callback after five seconds. | Exercises the complete asynchronous handoff without presenting the mock as the real ML contract. |
 | TD-035 | Accepted | Persist per-job operational history as versioned, append-only Kafka-shaped NDJSON records. | Gives local services one ordered record envelope without introducing a broker or processor. |
 | TD-036 | Accepted | Validate and persist schema-version-1 transcription JSON, then extract `transcript.text` to `transcript.txt`. | The structured source serves the portal and supplies audio metadata; the derived file remains the text/MoM input. |
-| TD-037 | Provisional | The text/MoM service accepts `transcript.txt` through multipart upload and returns an asynchronous model job ID. | The adapter isolates route and response details until the ML owner confirms the final contract. |
-| TD-038 | Provisional | The development text/MoM mock pushes a schema-version-1 MoM JSON object to a correlated pipeline callback after five seconds. | Exercises document and confidence validation, atomic persistence, recovery, and the `AWAITING_REVIEW` transition. |
+| TD-037 | Accepted | The text/MoM service accepts a multipart upload of `transcript.txt`, the persisted schema-version-1 transcription, and the job's `uploadedAt`, and returns an asynchronous model job ID. | The transcription supplies the segment IDs that MoM evidence must cite; the upload time is the meeting date when the recording has none. |
+| TD-038 | Superseded | The development text/MoM mock was replaced by the local MoM service (TD-045). | The pipeline has no text mock; tests use test doubles. |
 | TD-039 | Accepted | Persist schema-version-1 review context beside a review-ready MoM and expose it separately from transcript and MoM content. | Initial portal metadata stays compact; the potentially large transcript is loaded through its own endpoint. |
 | TD-040 | Accepted | Keep transcript and MoM confidence in review context; do not include recommendation annotations, issue counts, or export gating. | Confidence is part of the agreed ML outputs, while red-word recommendations require later ML-team validation. |
 | TD-041 | Accepted | Keep authentication and SSO outside the MVP API; use one configured local demo submitter identity. | The upload contract remains audio-only while review metadata can still carry the assumed submitter needed by the later notification flow. |
-| TD-042 | Provisional | Route embedded development-mock callbacks through the real FastAPI handlers using in-process ASGI by default, with actual HTTP available by configuration. | Keeps mock runs deterministic in restricted local environments while preserving the externally visible HTTP callback contract for real ML services and network-level integration tests. |
+| TD-042 | Provisional | Route embedded development audio-mock callbacks through the real FastAPI handlers using in-process ASGI by default, with actual HTTP available by configuration. | Keeps mock runs deterministic in restricted local environments while preserving the externally visible HTTP callback contract for real ML services and network-level integration tests. |
+| TD-045 | Accepted | Generate the MoM with Muse Glimmer 30B, Q4_K_M GGUF, served by a llama.cpp `llama-server` child of the local MoM service (`src/secure_mom_llm`). The model reasons freely, then writes JSON under a grammar derived from the draft schema; code fills segment IDs, timestamps, speakers, date, duration, and languages. | Muse ranked well in the MoM benchmark and runs on the MacBook. The grammar rules out malformed output, and derived fields cannot be invented. Streaming with no read timeout lets long meetings finish. |
+| TD-046 | Accepted | The text service reports a generation it cannot complete to a MoM failure callback, which moves the job to `FAILED` with the service's safe error. | Without it a failed generation would leave the portal waiting indefinitely. |
+| TD-047 | Provisional | The MoM is written in Romanian by default; `MOM_LLM_OUTPUT_LANGUAGE` selects `ro`, `ru`, or `en` for the service. | The upload contract stays audio-only until the team decides how a user chooses the MoM language. |
 
 ## Logging clarification
 

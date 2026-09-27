@@ -71,6 +71,10 @@ class ApiRoutes:
         "PIPELINE_MOM_RESULT_ROUTE",
         "/integrations/text/jobs/{job_id}/mom",
     )
+    mom_failure: str = os.getenv(
+        "PIPELINE_MOM_FAILURE_ROUTE",
+        "/integrations/text/jobs/{job_id}/failure",
+    )
     health: str = os.getenv("PIPELINE_HEALTH_ROUTE", "/health")
     ready: str = os.getenv("PIPELINE_READY_ROUTE", "/ready")
 
@@ -116,7 +120,9 @@ class Settings:
         "PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS", "medpark.test"
     )
 
-    # TODO(discovery, TD-026): replace these placeholders with ML-owner URLs.
+    # TODO(discovery, TD-026): replace the audio placeholder with its owner's URL.
+    # The text URL points at the local MoM service (`uv run mom-llm-service`),
+    # which acknowledges within this timeout and generates asynchronously.
     audio_service_url: str = os.getenv(
         "PIPELINE_AUDIO_SERVICE_URL", "http://127.0.0.1:8101"
     )
@@ -136,8 +142,8 @@ class Settings:
         os.getenv("PIPELINE_MOM_MAX_BYTES", str(10 * 1024 * 1024))
     )
 
-    # Development mocks route through the real callback handlers in-process by
-    # default. Use "http" to exercise actual loopback networking.
+    # The development audio mock routes through the real callback handler
+    # in-process by default. Use "http" to exercise actual loopback networking.
     mock_callback_transport: str = os.getenv(
         "PIPELINE_MOCK_CALLBACK_TRANSPORT", "in_process"
     )
@@ -147,13 +153,6 @@ class Settings:
     )
     mock_audio_callback_delay_seconds: float = float(
         os.getenv("PIPELINE_MOCK_AUDIO_CALLBACK_DELAY_SECONDS", "5.0")
-    )
-    mock_text_callback_base_url: str = os.getenv(
-        "PIPELINE_MOCK_TEXT_CALLBACK_BASE_URL",
-        f"http://127.0.0.1:{os.getenv('PIPELINE_API_PORT', '8000')}",
-    )
-    mock_text_callback_delay_seconds: float = float(
-        os.getenv("PIPELINE_MOCK_TEXT_CALLBACK_DELAY_SECONDS", "5.0")
     )
 
     # TODO(discovery, TD-032): tune after observing actual local services.

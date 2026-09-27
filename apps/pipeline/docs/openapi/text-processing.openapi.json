@@ -3,7 +3,7 @@
   "info": {
     "title": "Text-processing ML API",
     "version": "0.1.0-contract",
-    "description": "Asynchronous local transcript-to-MoM boundary. The pipeline supplies a UTF-8 transcript.txt file and the service pushes a schema-version-1 MoM result to the configured pipeline callback."
+    "description": "Asynchronous local transcript-to-MoM boundary, implemented by the local MoM service (src/secure_mom_llm). The pipeline supplies transcript.txt, the schema-version-1 transcription whose segment IDs evidence must cite, and the job's upload time. The service pushes a schema-version-1 MoM result, or a failure, to the configured pipeline callbacks."
   },
   "paths": {
     "/health": {
@@ -21,7 +21,7 @@
     "/jobs": {
       "post": {
         "operationId": "submitTextJob",
-        "summary": "Submit transcript.txt for MoM processing asynchronously",
+        "summary": "Submit a transcript for MoM processing asynchronously",
         "parameters": [
           {
             "name": "X-Pipeline-Job-Id",
@@ -43,12 +43,22 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["transcript"],
+                "required": ["transcript", "transcription", "uploadedAt"],
                 "properties": {
                   "transcript": {
                     "type": "string",
                     "format": "binary",
                     "description": "UTF-8 transcript.txt with text/plain media type"
+                  },
+                  "transcription": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "The persisted schema-version-1 transcription as application/json; its jobId must equal X-Pipeline-Job-Id"
+                  },
+                  "uploadedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "When the recording was uploaded; the meeting date when the recording has none"
                   }
                 }
               }
@@ -59,13 +69,21 @@
           "202": {
             "description": "Text job accepted",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TextJobAcknowledgement"}}}
-          }
+          },
+          "400": {"description": "Invalid transcript or transcription"},
+          "409": {"description": "The transcription belongs to another job, or Idempotency-Key was used for another job"}
         },
         "x-completion-callback": {
           "method": "POST",
           "contentType": "application/json",
           "correlationHeader": "X-Text-Model-Job-Id",
           "payloadSchema": {"$ref": "#/components/schemas/MomResult"}
+        },
+        "x-failure-callback": {
+          "method": "POST",
+          "contentType": "application/json",
+          "correlationHeader": "X-Text-Model-Job-Id",
+          "payloadSchema": {"$ref": "#/components/schemas/MomFailure"}
         }
       }
     }
@@ -93,6 +111,16 @@
             "additionalProperties": true,
             "description": "Generated MoM document. Its detailed content schema remains owned by the ML/frontend alignment work."
           }
+        }
+      },
+      "MomFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "retryable"],
+        "properties": {
+          "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 64},
+          "message": {"type": "string", "minLength": 1, "maxLength": 300, "description": "Shown to the portal user; never meeting content"},
+          "retryable": {"type": "boolean"}
         }
       },
       "MomQuality": {

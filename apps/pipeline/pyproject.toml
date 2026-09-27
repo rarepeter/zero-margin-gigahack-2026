@@ -25,6 +25,7 @@ dev = [
 pipeline-api = "secure_mom_pipeline.api:run"
 pipeline-worker = "secure_mom_pipeline.worker:run"
 pipeline-export-openapi = "secure_mom_pipeline.openapi_export:run"
+mom-llm-service = "secure_mom_llm.api:run"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/secure_mom_pipeline"]
+packages = ["src/secure_mom_pipeline", "src/secure_mom_llm"]

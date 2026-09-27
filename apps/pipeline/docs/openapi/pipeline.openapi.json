@@ -723,6 +723,35 @@
         "title": "MomEvidence",
         "type": "object"
       },
+      "MomFailure": {
+        "additionalProperties": false,
+        "description": "Reported by the text service when it cannot produce a draft MoM.\n\nThe message is shown to the portal user, so it must not contain meeting\ncontent.",
+        "properties": {
+          "code": {
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "title": "MomFailure",
+        "type": "object"
+      },
       "MomFinding": {
         "additionalProperties": false,
         "properties": {
@@ -2022,6 +2051,105 @@
           }
         },
         "summary": "Persist a completed transcription from the audio-to-text service"
+      }
+    },
+    "/api/v1/integrations/text/jobs/{job_id}/failure": {
+      "post": {
+        "operationId": "receive_mom_failure_api_v1_integrations_text_jobs__job_id__failure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Text-Model-Job-Id",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "X-Text-Model-Job-Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MomFailure"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MomReceipt"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MomReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Record that the text service could not produce a draft MoM"
       }
     },
     "/api/v1/integrations/text/jobs/{job_id}/mom": {

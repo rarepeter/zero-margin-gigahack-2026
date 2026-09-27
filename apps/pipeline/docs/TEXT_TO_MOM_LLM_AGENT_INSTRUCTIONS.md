@@ -1,5 +1,11 @@
 # Agent task: integrate the local text-to-MoM LLM service
 
+> **Status (27 September 2026): implemented** in `src/secure_mom_llm` with Muse
+> Glimmer 30B Q4_K_M on llama.cpp. Both contract gaps below were closed with
+> the recommended sidecar: the submission carries the structured transcription
+> and `uploadedAt`. See [the README](../README.md#the-local-mom-service) and
+> TD-037 and TD-045 to TD-047 in the [decision log](technical-decisions.md).
+
 You are implementing the local text-to-MoM module for Secure MOM. Read
 [`TEXT_TO_MOM_LLM_HANDOFF.md`](TEXT_TO_MOM_LLM_HANDOFF.md) first, then the
 pipeline contributor rules in [`../AGENTS.md`](../AGENTS.md). This task is a
