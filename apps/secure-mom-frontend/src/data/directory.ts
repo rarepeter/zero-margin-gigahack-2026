@@ -3,18 +3,18 @@
 export interface Person { name: string; email: string; title?: string }
 
 export const DIRECTORY: Person[] = [
-  { name: 'dr. Ciobanu', email: 'v.ciobanu@medpark.md' },
-  { name: 'dr. Rusu', email: 'a.rusu@medpark.md' },
-  { name: 'farmacist clinician Lungu', email: 'm.lungu@medpark.md' },
-  { name: 'asistenta-șefă Moraru', email: 'e.moraru@medpark.md' },
-  { name: 'dr. Popa', email: 'i.popa@medpark.md', title: 'Director medical' },
-  { name: 'dr. Ceban', email: 'd.ceban@medpark.md', title: 'Chirurgie' },
-  { name: 'Secretariat Consiliul medical', email: 'consiliu@medpark.md' },
-  { name: 'dr. Munteanu', email: 's.munteanu@medpark.md', title: 'Anestezie' },
-  { name: 'Farmacia spitalului', email: 'farmacie@medpark.md' },
+  { name: 'dr. Ciobanu', email: 'v.ciobanu@medpark.test' },
+  { name: 'dr. Rusu', email: 'a.rusu@medpark.test' },
+  { name: 'farmacist clinician Lungu', email: 'm.lungu@medpark.test' },
+  { name: 'asistenta-șefă Moraru', email: 'e.moraru@medpark.test' },
+  { name: 'dr. Popa', email: 'i.popa@medpark.test', title: 'Director medical' },
+  { name: 'dr. Ceban', email: 'd.ceban@medpark.test', title: 'Chirurgie' },
+  { name: 'Secretariat Consiliul medical', email: 'consiliu@medpark.test' },
+  { name: 'dr. Munteanu', email: 's.munteanu@medpark.test', title: 'Anestezie' },
+  { name: 'Farmacia spitalului', email: 'farmacie@medpark.test' },
 ];
 
-export const INTERNAL_DOMAIN = '@medpark.md';
+export const INTERNAL_DOMAIN = '@medpark.test';
 
 /** Default recipients = meeting participants that we can match in the directory (unknown voices have no address). */
 export function defaultRecipients(participantNames: string[]): Person[] {

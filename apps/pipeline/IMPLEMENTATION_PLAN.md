@@ -411,7 +411,8 @@ approval, download, export, and distribution are not silently included.
 
 # Post-MoM review and delivery requirements
 
-Status: accepted product scope; implementation pending
+Status: approval and final-delivery slice implemented; notification and live
+directory remain pending
 
 These items extend the workflow from a review-ready MoM through author
 notification, portal review, recipient selection, approval, and local delivery.
@@ -440,8 +441,9 @@ the demonstration machine is disconnected from the internet.
   review_ready`.
 - [ ] Read the recipient from the server-side persisted submitter metadata; do
   not expose the email through the browser-facing review-context response.
-- [ ] Add a replaceable local mail adapter and a deterministic development mock.
-- [ ] Use only the local demonstration mail environment. External SMTP, cloud
+- [x] Add a replaceable local mail adapter. Tests use a deterministic recording
+  adapter; the demo uses Mailpit through loopback SMTP.
+- [x] Use only the local demonstration mail environment. External SMTP, cloud
   mail APIs, and runtime internet dependencies are prohibited.
 - [ ] Define idempotency so callback replay or process restart does not send
   duplicate notifications.
@@ -457,21 +459,21 @@ the demonstration machine is disconnected from the internet.
 - [ ] Provide a local, internally maintained recipient-directory lookup that
   supports surname-based autocomplete; do not use an external directory at
   runtime.
-- [ ] Define a portal-to-backend approval request that persists the final edited
+- [x] Use the existing portal-to-backend approval request to persist the final edited
   MoM and the author-selected recipient addresses or directory identifiers.
-- [ ] Generate the delivery email from the approved MoM and supported meeting
+- [x] Generate the delivery email from the approved MoM and supported meeting
   information; do not invent missing metadata.
-- [ ] Deliver through the replaceable local mail adapter only after approval,
+- [x] Deliver through the replaceable local mail adapter only after approval,
   using the submitting author's authorized institutional address as sender.
 - [ ] Confirm and document the local mail environment's send-as or delegated
   sending policy; never spoof an arbitrary sender identity.
-- [ ] Make approval and final delivery idempotent, with clear delivery state,
+- [x] Make approval and final delivery idempotent, with clear delivery state,
   bounded retries, and metadata-only operational events.
-- [ ] Keep `COMPLETED` for durably approved minutes; represent later local
-  delivery results separately and preserve the approved artifact if delivery
-  fails.
-- [ ] Add offline tests for directory lookup, recipient validation, sender
-  authorization, email composition, and local delivery.
+- [x] Use `COMPLETED / approved` for no-email approval and
+  `COMPLETED / delivered` only after local SMTP acceptance. Preserve the
+  approved artifact at `FAILED / delivery_failed` if delivery fails.
+- [x] Add offline tests for recipient filtering, sender authorization, email
+  composition, idempotency, failure preservation, and local delivery.
 
 SSO implementation, account management, and full authorization enforcement
 remain outside the hackathon MVP. Word-level recommendations and ambiguity
@@ -498,21 +500,22 @@ Status: implemented where marked; remaining items are deliberate backlog.
   supply reliable annotations. The current frontend-only red-word behaviour is
   not a backend contract.
 - [x] Define and implement idempotent approval and approved-MoM retrieval for
-  the no-recipient flow. The portal does not claim delivery after approval.
-- [ ] Define local-delivery endpoints and their idempotent success/failure
-  states for a later recipient flow.
+  both the zero-recipient and conditional-delivery branches.
+- [x] Extend the same approval endpoint with idempotent local-delivery
+  success/failure states; do not introduce a second delivery endpoint.
 - [ ] Define retention, discard, and purge policy. There is no job deletion API;
   current deletion claims remain a known UI issue, not an implemented backend
   capability.
-- [ ] Add a local recipient-directory endpoint and server-side recipient policy.
-  The current portal directory remains a demo stub.
+- [ ] Add a local recipient-directory endpoint. The current portal directory
+  remains a `@medpark.test` demo stub; the server-side allowed-domain policy is
+  implemented independently.
 - [ ] Implement manual retry and readiness semantics after real local model
   behaviour supplies the final timeout and error taxonomy.
 
-# Approval and completion-screen increment: no recipients
+# Approval and completion-screen baseline: no recipients
 
-Status: implemented on 27 September 2026 for the zero-recipient demo path;
-visual PDF verification remains pending.
+Status: implemented on 27 September 2026, then extended by the conditional
+delivery increment below; visual PDF verification remains pending.
 The browser starts with an audio-only upload,
 the reviewer edits the displayed draft, and Export approves that exact result.
 With an empty recipient list, the job ends on a download screen and **no email
@@ -572,9 +575,8 @@ is composed, queued, or sent**.
   whether or not delivery occurs. The completion screen separately says
   **No email sent** when the recipient list is empty. Do not add a special
   no-recipient job status.
-- For this increment, a nonempty recipient list must not silently take this
-  branch: either use a separately verified local-delivery path or keep approval
-  blocked with a clear message. Do not send through external SMTP or an API.
+- This baseline's earlier nonempty-recipient restriction is superseded by the
+  conditional delivery increment below. The endpoint itself did not change.
 
 ## Completion-screen work and deferred PDF improvement
 
@@ -633,5 +635,85 @@ audio length is source metadata, not a timing substitute.
   implementation iteration, apply the restart-and-live-verification rule at
   the top of this plan.
 
-Decisions still open: direct PDF generation, future local-mail delivery, and
-cleanup policy. They do not block the zero-recipient approval path.
+Decisions still open: direct PDF generation, notification email, live directory
+integration, and cleanup policy. They do not block approval or final local
+delivery.
+
+# Mailpit pipeline integration — step 1
+
+Status: implemented and verified on 27 September 2026. This increment created
+the SMTP boundary; the conditional delivery increment below now uses it.
+
+- [x] Added `PIPELINE_MAIL_HOST`, `PIPELINE_MAIL_PORT`,
+  `PIPELINE_MAIL_TIMEOUT_SECONDS`, and `PIPELINE_MAIL_USE_STARTTLS` to the
+  central pipeline configuration and `.env.example`. Demo defaults are
+  `127.0.0.1:1025`, a five-second bounded timeout, and STARTTLS disabled.
+- [x] Added `mail_adapter.py`: a replaceable `LocalMailAdapter` protocol and
+  `SmtpMailAdapter` implementation using only Python `smtplib` and
+  `EmailMessage`. It has no Mailpit HTTP API, cloud-mail API, relay, or
+  forwarding dependency.
+- [x] Added validation before SMTP connection for required recipients and safe
+  header values, and a safe retry classification for SMTP failures.
+- [x] Documented the boundary and offline demo configuration in the pipeline
+  README.
+
+Verification output: `uv run pytest` passed all 44 tests (including five new
+mail-adapter tests); source compilation and a temporary generated OpenAPI JSON
+parse both passed. The suite emitted one existing FastAPI/Starlette TestClient
+deprecation warning.
+
+# Mailpit pipeline integration — step 4: conditional approval delivery
+
+Status: implemented on 27 September 2026.
+
+## Implemented contract
+
+- [x] Kept `POST /api/v1/jobs/{jobId}/approve` as the only approval action. No
+  `approve-and-deliver` endpoint or backward-compatibility branch was added.
+- [x] Made `recipients` and `skippedRecipients` required fields of every newly
+  persisted approved artifact. Older approved artifacts without the new shape
+  intentionally do not load in this pre-launch prototype.
+- [x] Normalized and de-duplicated recipient addresses. Malformed addresses and
+  domains outside `PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS` are soft failures:
+  they are recorded in `skippedRecipients`, while approval continues.
+- [x] Used `medpark.test` as the default allowed domain and for the frontend
+  directory, demo submitter, message IDs, mocks, tests, and documentation.
+- [x] If no accepted addresses remain, persisted the approval and transitioned
+  to `COMPLETED / approved` without invoking SMTP.
+- [x] If accepted addresses remain, composed a deterministic text email from
+  approved MoM fields only and sent it through the loopback SMTP adapter. The
+  sender is read from persisted submitter metadata and checked against the
+  configured server identity; the browser cannot choose it.
+- [x] Transitioned to `COMPLETED / delivered` only after SMTP acceptance. On
+  failure, persisted safe metadata at `delivery/result.json`, preserved
+  `mom/approved.json`, and exposed `FAILED / delivery_failed` with a safe
+  `LOCAL_SMTP_FAILED` response and adapter-provided retry classification.
+- [x] Made an identical `/approve` replay idempotent after success and the retry
+  mechanism after delivery failure. A changed document or changed normalized
+  recipient outcome conflicts with the immutable approval.
+- [x] Updated the frontend's existing bottom action in place: it says
+  **Approve and download** with no selected recipients and **Approve and send**
+  otherwise. It submits the same request in both cases, reports skipped
+  addresses softly, locks the approved content after SMTP failure, and renders
+  the delivered completion state only from the server response.
+- [x] Kept the existing print-based document export. There is no attachment
+  until a server-owned PDF/DOCX artifact contract exists.
+
+## Verification
+
+- [x] Pipeline tests cover empty recipients, a mixed accepted/skipped list,
+  duplicate normalization, composed content, SMTP acceptance, no duplicate
+  send on replay, failure preservation, and same-request retry.
+- [x] Pipeline OpenAPI was regenerated and synchronized into the frontend.
+- [x] Frontend typecheck and production build passed with the new generated
+  contract and conditional UI behavior.
+
+Final verification output: `uv run pytest` passed all 47 pipeline tests
+(including five SMTP-adapter tests and the conditional approval/delivery
+coverage) with one existing Starlette TestClient deprecation warning. Python
+source compilation and OpenAPI export passed. After synchronizing that OpenAPI
+document, frontend `npm run typecheck` and `npm run build` passed; Vite built 66
+modules. A live Mailpit container smoke check could not run on this machine
+because the `docker` executable is not installed; the loopback SMTP boundary is
+therefore verified by the adapter and approval-flow test doubles, not by a live
+container in this increment.

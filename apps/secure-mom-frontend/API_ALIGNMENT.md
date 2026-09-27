@@ -42,7 +42,7 @@ snake_case field naming remains the current portal contract.
 | Server indicator | `health` | `GET /health` | Route aligns, but backend health is currently a dummy liveness response and does not imply worker/model readiness. |
 | Failure screen | `retryJob` | `POST /api/v1/jobs/{job_id}/retry` | Route exists, but backend behavior is a dummy and does not actually recover a job. |
 | Recipient picker | Static `directory.ts` | No directory endpoint | Frontend-only prototype behavior. |
-| Approve without recipients | `approveMom` | `POST /api/v1/jobs/{job_id}/approve` | Persists the final edited MoM and returns the approved document; no delivery call. |
+| Approve, optionally deliver | `approveMom` | `POST /api/v1/jobs/{job_id}/approve` | Same request with or without recipients; backend skips invalid/non-allowlisted values and sends through local SMTP only when accepted recipients remain. |
 | Reload approved MoM | `getApprovedMom` | `GET /api/v1/jobs/{job_id}/approved-mom` | Reads the persisted approved document. |
 | Discard/delete | `discardJob` | No endpoint | Unsupported and conflicts with the pipeline's accepted no-deletion decision. |
 
@@ -76,12 +76,15 @@ success response and does not transition the failed job.
 No implementation change was made. The route remains a provisional backend
 dummy.
 
-### B5 — Approval implemented; local delivery deferred
+### B5 — Approval and conditional local delivery implemented
 
 The UI posts the edited document to the approval endpoint and shows completion
-only after success. An empty recipient list produces no email. The pipeline
-persists the approved document and exposes a read endpoint. The current PDF
-button still uses browser print. Recipient delivery remains future work.
+only after success. An empty or fully skipped recipient list produces no email.
+If accepted recipients remain, the same request succeeds only after local SMTP
+acceptance. The pipeline persists the approved document before attempting
+delivery and exposes it through the read endpoint. SMTP failure leaves the UI
+on Review with edits and recipients locked so the same request can retry. The
+current PDF button still uses browser print.
 
 ### B6 — Discard and purge claims — open question, untouched
 
@@ -92,13 +95,14 @@ job deletion in the current MVP.
 The team must decide retention/deletion behavior. No frontend or backend change
 was made: deletion was neither implemented nor removed.
 
-### B7 — Recipient source — deferred, unchanged
+### B7 — Recipient source — demo list retained
 
-The recipient picker uses hard-coded `@medpark.md` people. No local directory
-contract or confirmed distribution-list source exists.
+The recipient picker uses hard-coded `@medpark.test` people. No local directory
+contract or confirmed institutional distribution-list source exists.
 
-No implementation change was made. The existing local demo directory remains,
-and no external directory or SMTP service was introduced.
+The existing local demo directory remains. The backend independently enforces
+its configured allowed domains and softly reports skipped values. Delivery uses
+only the loopback SMTP adapter; no external directory or SMTP service is used.
 
 ### B9 — Inferred meeting type must not control delivery — resolved in the UI
 
@@ -118,7 +122,7 @@ input.
 - Dependency installation completed.
 - `npm run typecheck` passes after synchronizing OpenAPI.
 - `npm run build` passes.
-- All 37 pipeline tests pass.
+- All 47 pipeline tests pass.
 - Vite serves the index and transformed React entry module on
   `http://127.0.0.1:3100`.
 - A second Vite start fails on the occupied port, confirming `strictPort`.
@@ -127,5 +131,6 @@ input.
   expected versioned JSON contracts.
 - Visual browser interaction was not completed because no in-app or connected
   browser was available in the execution environment.
-- Retry, export/delivery, deletion, and directory integration were intentionally
-  not exercised because they remain deferred, absent, or open as recorded above.
+- The delivery paths are covered with a recording adapter in pipeline tests;
+  deletion, a live directory integration, and a browser-rendered PDF remain
+  deferred or absent as recorded above.

@@ -5,6 +5,7 @@ import { useApp } from '../../state/store';
 import { Icon } from '../ui/Icon';
 
 const INTERNAL = new RegExp(`^[^@\\s]+${INTERNAL_DOMAIN.replace('.', '\\.')}$`, 'i');
+const EMAIL = /^[a-z0-9][a-z0-9._%+\-]*@[a-z0-9][a-z0-9.\-]*$/i;
 
 /** "Will be shared with: (avatars) N participants + Add" → popover with chips, directory search, internal-only emails. */
 export function RecipientPicker() {
@@ -27,17 +28,16 @@ export function RecipientPicker() {
   const have = new Set(list.map((p) => p.email));
   const needle = q.trim().toLowerCase();
   const matches = DIRECTORY.filter((p) => !have.has(p.email) && (!needle || `${p.name} ${p.email}`.toLowerCase().includes(needle))).slice(0, 4);
-  const isMail = needle.includes('@');
-  const mailOk = isMail && INTERNAL.test(needle) && !have.has(needle);
+  const mailOk = EMAIL.test(needle) && !have.has(needle);
 
-  const add = (p: Person) => { setRecipients([...list, p]); setQ(''); input.current?.focus(); };
-  const remove = (i: number) => setRecipients(list.filter((_, k) => k !== i));
+  const add = (p: Person) => { if (!s.approvalLocked) { setRecipients([...list, p]); setQ(''); input.current?.focus(); } };
+  const remove = (i: number) => { if (!s.approvalLocked) setRecipients(list.filter((_, k) => k !== i)); };
   const first = () => (matches[0] ? add(matches[0]) : mailOk && add({ name: needle.split('@')[0], email: needle }));
 
   return (
     <div className="rcp" ref={box}>
       <span className="rcl">{l.to}:</span>
-      <button type="button" className="rcbtn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="rcbtn" aria-expanded={open} disabled={s.approvalLocked} onClick={() => setOpen((o) => !o)}>
         {list.slice(0, 4).map((p) => <span key={p.email} className="av xs">{initials(p.name)}</span>)}
         {n > 4 && <span className="av xs more">+{n - 4}</span>}
         <b>{l.rc_n(n)}</b>
@@ -67,7 +67,7 @@ export function RecipientPicker() {
               </li>
             ))}
             {mailOk && <li><button type="button" onClick={() => add({ name: needle.split('@')[0], email: needle })}>＋ {needle}</button></li>}
-            {isMail && !needle.endsWith(INTERNAL_DOMAIN) && <li className="rcerr">{l.rc_ext}</li>}
+            {mailOk && !INTERNAL.test(needle) && <li className="rcerr">{l.rc_ext}</li>}
           </ul>
           <div className="rcfoot">
             <small><Icon name="lock" />{l.rc_hint}</small>

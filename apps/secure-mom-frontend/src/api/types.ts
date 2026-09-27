@@ -40,7 +40,7 @@ export interface SecureMomApi {
   retryJob(jobId: string): Promise<unknown>;
   /** GET /health — drives the "Local server: Online" indicator. */
   health(): Promise<boolean>;
-  /** Persist the final reviewed document. This iteration accepts no recipients. */
+  /** Persist the final reviewed document and deliver locally when recipients remain after server filtering. */
   approveMom(jobId: string, mom: unknown, recipients: string[]): Promise<ApprovedMom>;
   getApprovedMom(jobId: string): Promise<ApprovedMom>;
   /**

@@ -3,27 +3,11 @@
 /* <Icon> wrapper must not affect layout — the inner <svg> is what the prototype styled. */
 .i{display:contents}
 
-/* Red words are real buttons now (keyboard + screen reader). Reset button chrome, keep the prototype look. */
-.fxwrap{display:inline}
-button.fix,button.fixed{font:inherit;line-height:inherit;color:inherit;border:0;margin:0;cursor:pointer;text-align:left}
-button.fix{color:var(--crit);font-weight:600;background:var(--crit-bg);border-radius:4px;padding:0 4px;border-bottom:2px dashed var(--crit)}
-button.fix:hover{background:#F6D5D6}
-button.fix:focus-visible{outline:2px solid var(--crit);outline-offset:1px}
-button.fix.soft{color:#9A5B00;background:#FFF4E0;border-bottom-color:#E0A33A}
-button.fixed{background:none;padding:0 0 1px;border-bottom:2px dotted var(--ok);border-radius:0}
-button.fixed:hover{background:#F4FAFA}
-.fxq{display:block}
-.fxq b{font-weight:600}
-.fxc{margin:10px 0 0}
-.fchip2{font:inherit;cursor:pointer}
-.fxtype{margin:10px 0 0}
-.fxtype input{width:100%;min-height:38px;padding:0 12px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:.92rem;background:#fff;color:var(--ink)}
-.fxtype input:focus{outline:2px solid #00A2A4;outline-offset:0;border-color:#00A2A4}
-
 /* Edit mode */
-.doc.editing .edta{display:block;width:100%;resize:none;overflow:hidden;font:inherit;line-height:1.6;color:var(--ink);padding:6px 10px;margin:2px 0;border:1px solid var(--line);border-radius:8px;background:#fff}
-.doc.editing .edta:focus{outline:2px solid #00A2A4;outline-offset:0;border-color:#00A2A4}
-.doc.editing li b{font-weight:inherit}
+.doc.editing{cursor:text;caret-color:var(--accent);outline:0}
+.doc.editing:focus{outline:0}
+.doc.editing .edit-value:empty::before{content:attr(data-placeholder);color:var(--muted);font-style:italic}
+.doc.editing [contenteditable="false"]{cursor:default;user-select:none}
 .doc .st{color:var(--muted);font-style:normal}
 .doc .by{color:var(--muted)}
 

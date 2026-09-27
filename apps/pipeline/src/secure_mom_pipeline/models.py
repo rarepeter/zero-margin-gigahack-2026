@@ -82,6 +82,10 @@ class JobArtifacts(PipelineModel):
         alias="reviewContext",
     )
     approved_mom: ArtifactDescriptor | None = Field(default=None, alias="approvedMom")
+    delivery_result: ArtifactDescriptor | None = Field(
+        default=None,
+        alias="deliveryResult",
+    )
 
 
 class JobError(PipelineModel):
@@ -408,6 +412,18 @@ class ApprovedMom(ContractModel):
     job_id: str = Field(alias="jobId")
     approved_at: datetime = Field(alias="approvedAt")
     document: MomDocument
+    recipients: list[str]
+    skipped_recipients: list[str] = Field(alias="skippedRecipients")
+
+
+class DeliveryResult(ContractModel):
+    schema_version: Literal[1] = Field(alias="schemaVersion")
+    job_id: str = Field(alias="jobId")
+    status: Literal["accepted", "failed"]
+    message_id: str = Field(alias="messageId", min_length=1)
+    attempted_at: datetime = Field(alias="attemptedAt")
+    recipient_count: int = Field(alias="recipientCount", ge=1)
+    error_code: str | None = Field(default=None, alias="errorCode")
 
 
 class ProcessingSummary(PipelineModel):

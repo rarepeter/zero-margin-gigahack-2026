@@ -4,8 +4,8 @@ This directory contains the backend control API and worker that coordinate the
 local Secure MOM processing flow.
 
 The pipeline accepts one meeting recording, stores a filesystem-backed job,
-invokes two independently operated local ML services, and finishes when a
-review-ready draft MoM has been persisted as JSON.
+invokes two independently operated local ML services, and supports human
+approval with optional local email delivery.
 
 ```text
 audio upload
@@ -56,7 +56,31 @@ deployment wiring, and requires the worker to reach the configured pipeline API
 callback base URLs. Real independently started ML services always use the HTTP
 callback endpoints; the in-process option applies only to development mocks.
 
-Manual retry and readiness remain mock or unimplemented.
+After review, `POST /api/v1/jobs/{jobId}/approve` persists one immutable
+approved snapshot. With no accepted recipients it completes without email. With
+accepted recipients it sends through local SMTP and completes only after SMTP
+acceptance; a delivery failure preserves the approval for an identical-request
+retry. Manual ML retry and readiness remain mock or unimplemented.
+
+## Local mail adapter
+
+The pipeline uses a replaceable standard-library SMTP boundary for approved-MoM
+delivery. It does not call Mailpit's HTTP API. The offline demo defaults are:
+
+```text
+PIPELINE_MAIL_HOST=127.0.0.1
+PIPELINE_MAIL_PORT=1025
+PIPELINE_MAIL_TIMEOUT_SECONDS=5.0
+PIPELINE_MAIL_USE_STARTTLS=false
+PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS=medpark.test
+```
+
+The timeout bounds socket connection and SMTP commands. `apps/mailpit` binds
+the corresponding SMTP listener to loopback only; no cloud mail API, relay, or
+forwarding behavior is added by this adapter. Malformed or non-allowlisted
+recipients are reported as skipped and do not prevent approval. The sender is
+read from the stored demo submitter and checked server-side; it is never taken
+from the browser request.
 
 ## Documentation
 
@@ -85,7 +109,8 @@ provisional, deferred, or still open.
 - direct MacBook execution first; Docker is not currently required
 
 These points describe the accepted target architecture. The current pipeline
-stops after persisting a review-ready draft MoM JSON artifact.
+continues from the review-ready draft through approval and optional local SMTP
+delivery.
 
 ## Local setup
 
@@ -140,7 +165,8 @@ Jobs are stored below `PIPELINE_STORAGE_ROOT/jobs/<job-id>/`. Each contains
 `state.json`, a server-named audio artifact under `input/`, source and `.txt`
 transcription checkpoints under `transcript/`, and an append-only
 `operations.ndjson` history. Review-ready jobs also contain `mom/draft.json` and
-`review/context.json`. State and artifact installation are atomic.
+`review/context.json`. Approved jobs also contain `mom/approved.json`; delivery
+attempts add `delivery/result.json`. State and artifact installation are atomic.
 
 ## Filesystem services
 

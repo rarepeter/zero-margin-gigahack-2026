@@ -54,7 +54,10 @@ export const mockApi: SecureMomApi = {
   async getJob(jobId) {
     const j = jobs.get(jobId) ?? fallbackJob();
     const elapsed = Date.now() - j.created;
-    const { status, stage } = statusAt(elapsed, j.fail);
+    const approved = approvals.get(jobId);
+    const { status, stage } = approved
+      ? { status: 'COMPLETED' as const, stage: approved.recipients.length ? 'delivered' : 'approved' }
+      : statusAt(elapsed, j.fail);
     const res: JobStatusResponse = {
       jobId,
       status,
@@ -63,8 +66,8 @@ export const mockApi: SecureMomApi = {
       updatedAt: new Date().toISOString(),
       artifacts: {
         transcriptAvailable: elapsed >= T_GENERATING,
-        momAvailable: status === 'AWAITING_REVIEW',
-        reviewContextAvailable: status === 'AWAITING_REVIEW',
+        momAvailable: status === 'AWAITING_REVIEW' || status === 'COMPLETED',
+        reviewContextAvailable: status === 'AWAITING_REVIEW' || status === 'COMPLETED',
       },
       error: status === 'FAILED' ? { code: 'MOM_GENERATION_FAILED', message: 'Text service did not respond.', retryable: true } : null,
     };
@@ -138,14 +141,17 @@ export const mockApi: SecureMomApi = {
   },
   async approveMom(jobId, mom, recipients) {
     await wait(400);
-    if (recipients.length) throw new Error('Recipient delivery is not available in this flow.');
     const existing = approvals.get(jobId);
     if (existing) return existing;
+    const accepted = [...new Set(recipients.map((email) => email.trim().toLowerCase()).filter((email) => /^[a-z0-9][a-z0-9._%+\-]*@medpark\.test$/i.test(email)))];
+    const skipped = recipients.filter((email) => !/^[a-z0-9][a-z0-9._%+\-]*@medpark\.test$/i.test(email.trim()));
     const approved: ApprovedMom = {
       schemaVersion: 1,
       jobId,
       approvedAt: new Date().toISOString(),
       document: structuredClone(mom) as ApprovedMom['document'],
+      recipients: accepted,
+      skippedRecipients: skipped,
     };
     approvals.set(jobId, approved);
     return approved;

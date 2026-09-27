@@ -26,8 +26,8 @@ export function DoneScreen() {
     <>
       <div className="done-hero">
         <div className="check"><Icon name="bigcheck" /></div>
-        <h1>{l.dl_t}</h1>
-        <p className="lead" style={{ marginInline: 'auto' }}>{l.dl_s}</p>
+        <h1>{s.outcome === 'sent' ? l.sent_t : l.dl_t}</h1>
+        <p className="lead" style={{ marginInline: 'auto' }}>{s.outcome === 'sent' ? l.sent_s(s.deliveredRecipientCount) : l.dl_s}</p>
       </div>
       {savedMinutes > 0 && <div className="thanks" role="note"><div><strong>{l.ty_t}</strong><span>{l.ty_s(savedMinutes)}</span></div></div>}
       <div className="row">

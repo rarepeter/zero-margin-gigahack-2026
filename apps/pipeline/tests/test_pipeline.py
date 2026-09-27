@@ -22,6 +22,11 @@ from secure_mom_pipeline.intermediate_transformer import (
     StructuredTranscriptionTransformer,
 )
 from secure_mom_pipeline.job_store import JobStore
+from secure_mom_pipeline.mail_adapter import (
+    LocalMailMessage,
+    MailAdapterError,
+    MailSubmission,
+)
 from secure_mom_pipeline.models import (
     JobStatus,
     TextSubmission,
@@ -184,6 +189,21 @@ class RecordingTextService:
             (pipeline_job_id, idempotency_key, text_path.read_bytes())
         )
         return TextSubmission(model_job_id="text-job-1", status="accepted")
+
+
+class RecordingMailAdapter:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.messages: list[LocalMailMessage] = []
+
+    def send(self, message: LocalMailMessage) -> MailSubmission:
+        self.messages.append(message)
+        if self.fail:
+            raise MailAdapterError("simulated local SMTP failure", retryable=True)
+        return MailSubmission(
+            message_id=message.message_id,
+            recipient_count=len(message.recipients),
+        )
 
 
 def test_upload_persists_bytes_state_and_ordered_events(
@@ -957,6 +977,8 @@ def test_approval_persists_edited_mom_without_delivery(
     approved = client.post(f"/api/v1/jobs/{job_id}/approve", json=request)
     assert approved.status_code == 200, approved.text
     assert approved.json()["document"]["summary"] == document["summary"]
+    assert approved.json()["recipients"] == []
+    assert approved.json()["skippedRecipients"] == []
     assert client.get(f"/api/v1/jobs/{job_id}").json()["status"] == "COMPLETED"
     assert client.get(f"/api/v1/jobs/{job_id}/approved-mom").json() == approved.json()
     assert client.get(f"/api/v1/jobs/{job_id}/mom").json() == json.loads(draft)
@@ -966,7 +988,145 @@ def test_approval_persists_edited_mom_without_delivery(
     changed = deepcopy(request)
     changed["document"]["summary"] = "Different approval"
     assert client.post(f"/api/v1/jobs/{job_id}/approve", json=changed).status_code == 409
-    assert client.post(f"/api/v1/jobs/{job_id}/approve", json={**request, "recipients": ["staff@medpark.md"]}).status_code == 409
+    assert client.post(f"/api/v1/jobs/{job_id}/approve", json={**request, "recipients": ["staff@medpark.test"]}).status_code == 409
+
+
+def test_approval_softly_skips_external_recipients_and_delivers_locally(
+    client: TestClient,
+    store: JobStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client, job_id, audio_job_id, transcription_document(job_id)
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.delivery"),
+        RecordingTextService(),
+    )
+    draft = mom_document()
+    assert push_mom(client, job_id, "text-job-1", draft).status_code == 202
+    mail = RecordingMailAdapter()
+    monkeypatch.setattr(api, "mail_adapter", mail)
+
+    request = {
+        "schemaVersion": 1,
+        "document": json.loads(draft)["document"],
+        "recipients": [
+            "Doctor@medpark.test",
+            "external@example.com",
+            "not-an-email",
+            "attacker@example.com,doctor@medpark.test",
+            "doctor@medpark.test",
+        ],
+    }
+    response = client.post(f"/api/v1/jobs/{job_id}/approve", json=request)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["recipients"] == ["doctor@medpark.test"]
+    assert response.json()["skippedRecipients"] == [
+        "external@example.com",
+        "not-an-email",
+        "attacker@example.com,doctor@medpark.test",
+    ]
+    assert len(mail.messages) == 1
+    message = mail.messages[0]
+    assert message.sender == "demo@medpark.test"
+    assert message.recipients == ("doctor@medpark.test",)
+    assert message.message_id == f"<secure-mom-{job_id}@medpark.test>"
+    assert "Mock Minutes" in message.text_body
+    state = store.read_state(job_id)
+    assert state.status == JobStatus.COMPLETED
+    assert state.stage == "delivered"
+    assert state.artifacts.delivery_result is not None
+    result = json.loads(
+        (store.job_directory(job_id) / "delivery/result.json").read_text()
+    )
+    assert result["status"] == "accepted"
+    assert result["recipientCount"] == 1
+
+    replay = client.post(f"/api/v1/jobs/{job_id}/approve", json=request)
+    assert replay.status_code == 200
+    assert len(mail.messages) == 1
+
+
+def test_delivery_failure_preserves_approval_and_same_request_retries(
+    client: TestClient,
+    store: JobStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client, job_id, audio_job_id, transcription_document(job_id)
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.delivery-retry"),
+        RecordingTextService(),
+    )
+    draft = mom_document()
+    assert push_mom(client, job_id, "text-job-1", draft).status_code == 202
+    request = {
+        "schemaVersion": 1,
+        "document": json.loads(draft)["document"],
+        "recipients": ["reviewer@medpark.test"],
+    }
+
+    monkeypatch.setattr(api, "mail_adapter", RecordingMailAdapter(fail=True))
+    failed = client.post(f"/api/v1/jobs/{job_id}/approve", json=request)
+    assert failed.status_code == 502
+    assert (store.job_directory(job_id) / "mom/approved.json").is_file()
+    state = store.read_state(job_id)
+    assert state.status == JobStatus.FAILED
+    assert state.stage == "delivery_failed"
+
+    working_mail = RecordingMailAdapter()
+    monkeypatch.setattr(api, "mail_adapter", working_mail)
+    retried = client.post(f"/api/v1/jobs/{job_id}/approve", json=request)
+    assert retried.status_code == 200, retried.text
+    assert len(working_mail.messages) == 1
+    assert store.read_state(job_id).stage == "delivered"
+
+
+def test_all_disallowed_recipients_are_skipped_without_smtp(
+    client: TestClient,
+    store: JobStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client, job_id, audio_job_id, transcription_document(job_id)
+    ).status_code == 202
+    assert process_one(
+        store,
+        MockAudioService(),
+        logging.getLogger("test.delivery-skipped"),
+        RecordingTextService(),
+    )
+    draft = mom_document()
+    assert push_mom(client, job_id, "text-job-1", draft).status_code == 202
+    mail = RecordingMailAdapter()
+    monkeypatch.setattr(api, "mail_adapter", mail)
+
+    response = client.post(
+        f"/api/v1/jobs/{job_id}/approve",
+        json={
+            "schemaVersion": 1,
+            "document": json.loads(draft)["document"],
+            "recipients": ["outside@example.com"],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["recipients"] == []
+    assert response.json()["skippedRecipients"] == ["outside@example.com"]
+    assert mail.messages == []
+    assert store.read_state(job_id).stage == "approved"
 
 
 def test_review_context_preserves_missing_model_confidence(

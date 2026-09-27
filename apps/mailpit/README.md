@@ -10,8 +10,8 @@ relay or forward email to the internet.
 2. **Approved MoM** — sent from the submitting author's authorized address to
    the recipients selected in the review portal.
 
-Mailpit is not yet wired into the Python pipeline. This folder establishes the
-local Docker dependency and the operational contract for that next step.
+The Python pipeline is wired to Mailpit-compatible SMTP for the second message.
+The draft-ready notification remains future work.
 
 ## Local-only design
 
@@ -100,26 +100,27 @@ The inbox must remain reachable at <http://127.0.0.1:8025>. If Docker reports
 that `axllent/mailpit:v1.31.2` is missing, reconnect only long enough to run
 `docker compose pull`, then repeat this check offline.
 
-## Contract for the forthcoming pipeline integration
+## Pipeline integration contract
 
-The pipeline will send mail through standard SMTP using these values:
+The pipeline sends approved-MoM mail through standard SMTP using these values:
 
 ```text
 PIPELINE_MAIL_HOST=127.0.0.1
 PIPELINE_MAIL_PORT=1025
 PIPELINE_MAIL_USE_STARTTLS=false
+PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS=medpark.test
 ```
 
-The implementation must use a replaceable local mail adapter and Python's SMTP
-client rather than Mailpit's HTTP API. That keeps the application independent
-of Mailpit and makes a later switch to Medpark's authorized internal SMTP relay
-possible without changing the notification or review workflow.
+The implementation uses a replaceable local mail adapter and Python's SMTP
+client rather than Mailpit's HTTP API. It has no external relay or forwarding
+configuration.
 
 For every message, the adapter must:
 
 - use the server-side submitting-author address as `From` only after local
   authorization validates it;
-- validate recipients against the internal directory and permitted domain;
+- softly skip malformed or non-permitted-domain recipients and deliver only to
+  the accepted `@medpark.test` list;
 - use a stable `Message-ID` and persist a metadata-only delivery record to
   prevent duplicate notification on callback replay;
 - send no full MoM content in the draft-ready notification; and
@@ -158,8 +159,8 @@ make down
 
 The smoke-test recipient defaults to `demo.recipient@medpark.test`. It is only
 an email header in Mailpit's shared local inbox; Mailpit does not create a real
-user account or send the message outside the Mac. A named submitting author and
-the actual recipient directory will be introduced by the later pipeline work.
+user account or send the message outside the Mac. The current portal directory
+is a static demo list; an internal server-owned directory remains later work.
 
 Do not commit `.env`, `runtime/`, Mailpit databases, captured email files, or
 attachments. Do not change the image tag during the demo without running the

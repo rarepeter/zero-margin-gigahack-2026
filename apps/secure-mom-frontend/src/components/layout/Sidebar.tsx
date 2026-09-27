@@ -78,7 +78,7 @@ function ProcessingSteps({ live }: { live: boolean }) {
 }
 
 function Stepper() {
-  const { s, l, left } = useApp();
+  const { s, l } = useApp();
   const [open, setOpen] = useState(false);
   const idx = { upload: 0, recording: 0, processing: 1, failed: 1, review: 2, done: 3 }[s.screen];
   const done = s.screen === 'done';
@@ -89,7 +89,7 @@ function Stepper() {
     if (i < idx) return i === 1 && procTotal ? `${l.st_done} · ${procTotal}` : l.st_done;
     if (i > idx) return l.st_wait;
     if (i === 1 && s.screen === 'failed') return l.st_failed;
-    if (i === 2) return left ? l.st_now : l.st_rev(0);
+    if (i === 2) return l.st_now;
     if (i === 0 && s.screen === 'recording') return l.recording;
     return l.st_now;
   };

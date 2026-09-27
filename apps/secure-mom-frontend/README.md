@@ -58,7 +58,7 @@ All server access goes through a single interface, `SecureMomApi`, in `src/api/t
 | Review metadata/confidence | `getReviewContext` | `GET /api/v1/jobs/{id}/review-context` | ✅ |
 | Retry after failure | `retryJob` | `POST /api/v1/jobs/{id}/retry` | ⚠️ **B4** — route is a backend dummy |
 | "Local server: Online" (every 15 s) | `health` | `GET /health` | ✅ liveness only; not full readiness |
-| Approve (after review, no recipients) | `approveMom` | `POST /api/v1/jobs/{id}/approve` | ✅ |
+| Approve, optionally deliver | `approveMom` | `POST /api/v1/jobs/{id}/approve` | ✅; one endpoint with or without recipients |
 | Approved MoM | `getApprovedMom` | `GET /api/v1/jobs/{id}/approved-mom` | ✅ |
 | Discard | `discardJob` | No pipeline endpoint | ❌ **B6** |
 | Recipient directory | (local stub) | `src/data/directory.ts` → e.g. `GET /api/v1/directory?q=` | ❌ **TODO** |
@@ -68,10 +68,18 @@ numbered blocker queue. Blockers are intentionally being handled incrementally.
 
 Behaviour while these endpoints are missing:
 
-- **Approval:** the UI submits the edited MoM with an empty recipient list and enters the completion screen only after the pipeline persists it. No email is sent. The existing PDF button still uses browser print; direct PDF generation is deferred.
+- **Approval:** the UI submits the edited MoM and its current recipient list to
+  the same endpoint. With no accepted recipients it shows the download result;
+  with accepted recipients it shows delivery only after local SMTP acceptance.
+  The existing PDF button still uses browser print; direct PDF generation is
+  deferred.
 - **Discard:** same pattern as export: the call is attempted, failures are logged, and the flow continues.
 - **Confidence:** transcript and MoM confidence come from the backend review context.
-- **Recipients:** the current local prototype directory accepts only `@medpark.md` addresses. The directory and final delivery policy are deferred backend work; inferred meeting type does not change delivery behaviour.
+- **Recipients:** the current local prototype directory uses `@medpark.test`
+  addresses. The backend softly skips malformed and non-allowlisted values
+  rather than blocking approval. Replacing the static list with an internal
+  directory is deferred; inferred meeting type does not change delivery
+  behaviour.
 
 The backend-generated OpenAPI document is the source of truth. After it changes,
 sync the frontend snapshot and regenerate the types:
@@ -88,7 +96,7 @@ npm run sync:api   # pipeline OpenAPI → frontend snapshot → schema.d.ts
 | `TRANSCRIBING` | Transcription RO · RU · EN |
 | `GENERATING_MOM` | Generating the minutes |
 | `AWAITING_REVIEW` | Ready for review, then the Review screen opens |
-| `COMPLETED` | Approved MoM saved; completion screen can be restored |
+| `COMPLETED` | Approved without accepted recipients, or accepted by local SMTP for delivery |
 | `FAILED` | Failed screen (Retry only if `error.retryable`) |
 
 The API returns no progress percentage. The progress bar uses the status as a floor and creeps slowly within each phase.
@@ -138,6 +146,6 @@ src/
 
 - No external AI API, cloud service or external SMTP at runtime. The UI only calls same-origin endpoints.
 - Audio files are never committed to git. Keep `*.m4a`, `*.mp3` and `*.wav` in the root `.gitignore`.
-- Approval without recipients is implemented. The recipient directory, email
-  delivery, and retention policy remain deferred; the UI must not infer those
-  rules from the meeting type.
+- Approval with or without recipients and Mailpit-compatible local delivery are
+  implemented. The production directory/authentication policy and retention
+  policy remain deferred; the UI must not infer those rules from meeting type.

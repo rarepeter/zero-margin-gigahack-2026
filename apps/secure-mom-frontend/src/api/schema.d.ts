@@ -81,7 +81,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Persist an approved MoM without email delivery */
+        /** Approve a MoM and optionally deliver it through local SMTP */
         post: operations["approve_mom_api_v1_jobs__job_id__approve_post"];
         delete?: never;
         options?: never;
@@ -233,11 +233,15 @@ export interface components {
             document: components["schemas"]["MomDocument"];
             /** Jobid */
             jobId: string;
+            /** Recipients */
+            recipients: string[];
             /**
              * Schemaversion
              * @constant
              */
             schemaVersion: 1;
+            /** Skippedrecipients */
+            skippedRecipients: string[];
         };
         /** ArtifactAvailability */
         ArtifactAvailability: {
@@ -1131,6 +1135,15 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

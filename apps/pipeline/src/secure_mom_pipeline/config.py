@@ -11,6 +11,36 @@ def _path_from_env(name: str, fallback: str) -> Path:
     return Path(os.getenv(name, fallback)).expanduser()
 
 
+def _bounded_positive_float_from_env(name: str, fallback: str, maximum: float) -> float:
+    value = float(os.getenv(name, fallback))
+    if not 0 < value <= maximum:
+        raise ValueError(f"{name} must be greater than zero and no greater than {maximum}")
+    return value
+
+
+def _boolean_from_env(name: str, fallback: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return fallback
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
+
+
+def _domains_from_env(name: str, fallback: str) -> tuple[str, ...]:
+    domains = tuple(
+        part.strip().lower().removeprefix("@")
+        for part in os.getenv(name, fallback).split(",")
+        if part.strip()
+    )
+    if not domains:
+        raise ValueError(f"{name} must contain at least one domain")
+    return domains
+
+
 @dataclass(frozen=True, slots=True)
 class ApiRoutes:
     """TODO(discovery, TD-025): replace all provisional public routes."""
@@ -65,6 +95,21 @@ class Settings:
     )
     demo_submitter_display_name: str | None = os.getenv(
         "PIPELINE_DEMO_SUBMITTER_DISPLAY_NAME", "Demo User"
+    )
+
+    # The demo mail transport is deliberately local and uses Mailpit's SMTP
+    # listener. The adapter has no Mailpit HTTP dependency, relay, or cloud
+    # API. A bounded socket timeout covers connection and SMTP commands.
+    mail_host: str = os.getenv("PIPELINE_MAIL_HOST", "127.0.0.1")
+    mail_port: int = int(os.getenv("PIPELINE_MAIL_PORT", "1025"))
+    mail_timeout_seconds: float = _bounded_positive_float_from_env(
+        "PIPELINE_MAIL_TIMEOUT_SECONDS", "5.0", 60.0
+    )
+    mail_use_starttls: bool = _boolean_from_env(
+        "PIPELINE_MAIL_USE_STARTTLS", False
+    )
+    mail_allowed_recipient_domains: tuple[str, ...] = _domains_from_env(
+        "PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS", "medpark.test"
     )
 
     # TODO(discovery, TD-026): replace these placeholders with ML-owner URLs.

@@ -1,7 +1,7 @@
 # Draft pipeline HTTP API
 
-Status: job creation and status implemented provisionally; remaining routes are not finalized
-Last updated: 26 September 2026
+Status: implemented provisional API; remaining routes are not finalized
+Last updated: 27 September 2026
 
 ## Conventions
 
@@ -148,8 +148,8 @@ the separately loaded transcript and MoM resources. It does not contain either
 large content artifact, red-word recommendations, issue counters, approval
 state, or export gating.
 
-The persisted server-side artifact retains the submitter email for a future
-local notification component. The browser response intentionally omits that
+The persisted server-side artifact retains the submitter email for authorized
+local delivery. The browser response intentionally omits that
 email. Confidence values are nullable and are copied from the accepted audio
 and text artifacts without UI-side calculation. `recordedAt`, when supplied by
 the audio service from container metadata, is exposed separately from the job
@@ -163,12 +163,30 @@ distinct from the existing job-creation-to-review `elapsedMs`.
 
 ### `POST /api/v1/jobs/{jobId}/approve`
 
-Accept `{ "schemaVersion": 1, "document": <edited MoM>, "recipients": [] }`
-while the job is `AWAITING_REVIEW`. Validate the document and its evidence,
-persist `mom/approved.json`, and set the job to `COMPLETED`. Return the approved
-document, job ID, and approval timestamp. Identical retries return the same
-approval; a different document conflicts. This increment rejects nonempty
-recipient lists and performs no email delivery.
+Accept `{ "schemaVersion": 1, "document": <edited MoM>, "recipients": [...] }`
+while the job is `AWAITING_REVIEW`. The same endpoint covers both outcomes:
+
+- after normalization, an empty accepted-recipient list persists
+  `mom/approved.json` and completes at `COMPLETED / approved` without SMTP;
+- one or more accepted recipients persist the same immutable approval and then
+  deliver its composed message through the configured local SMTP adapter. The
+  job reaches `COMPLETED / delivered` only after SMTP accepts the message.
+
+Recipient values that are malformed or outside
+`PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS` are returned in
+`skippedRecipients`; they do not reject or block approval. Accepted addresses
+are normalized and de-duplicated. The sender always comes from the stored,
+server-authorized demo submitter identity and is never accepted from the
+browser.
+
+The approved artifact records the exact accepted and skipped recipient lists.
+An identical retry returns the same completed approval without sending a
+duplicate message. If local SMTP fails, `mom/approved.json` is preserved,
+`delivery/result.json` records safe failure metadata, and the job becomes
+`FAILED / delivery_failed`; repeating the identical approval request retries
+delivery. A different document or recipient selection conflicts. This is the
+only approval/delivery endpoint; there is no compatibility endpoint or legacy
+approved-artifact reader.
 
 ### `GET /api/v1/jobs/{jobId}/approved-mom`
 
@@ -205,14 +223,13 @@ the configured health of both ML endpoints.
 
 ## Explicitly excluded endpoints
 
-The initial pipeline API does not provide:
+The pipeline API does not provide:
 
 - MoM edit or update endpoints;
-- approval endpoints;
 - ODF or DOCX download endpoints;
 - cancellation;
 - job deletion;
-- SMTP delivery; or
+- an external SMTP or cloud-mail endpoint; or
 - user authentication.
 
 ## Draft error envelope

@@ -1,13 +1,13 @@
 // Single app store (useReducer + context). One page, so no router.
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import { api, API_MODE, ApiError, type JobStatus, type JobStatusResponse, type ReviewContextResponse } from '../api';
-import { applyResolutions, blockingLeft, collectIssues, parseMom, type Issue, type Mom, type Resolutions } from '../domain/mom';
+import { parseMom, type Mom } from '../domain/mom';
 import { segmentsFromTranscription, type Segment } from '../domain/transcript';
 import { type Person } from '../data/directory';
 import { DICT, type Dict, type LangCode } from '../i18n';
 
 export type Screen = 'upload' | 'recording' | 'processing' | 'failed' | 'review' | 'done';
-export type Outcome = 'download' | 'discard';
+export type Outcome = 'download' | 'sent' | 'discard';
 /** Text edits made in Edit mode, keyed by path, e.g. `summary`, `decisions.0.text`. */
 export type Edits = Record<string, string>;
 
@@ -26,10 +26,11 @@ export interface State {
   segments: Segment[];
   mom: Mom | null;
   reviewContext: ReviewContextResponse | null;
-  res: Resolutions;
   edits: Edits;
   reviewEditing: boolean;
+  approvalLocked: boolean;
   recipients: Person[];
+  deliveredRecipientCount: number;
   portalSecs: number;
   portalOpenedAt: number;
   outcome: Outcome | null;
@@ -39,7 +40,7 @@ export interface State {
 
 const initial = (lang: LangCode, openedAt = Date.now()): State => ({
   lang, screen: 'upload', serverOnline: null, jobId: null, fileName: null, job: null, seen: {}, uploadedAt: null, readyAt: null,
-  error: null, segments: [], mom: null, reviewContext: null, res: {}, edits: {}, reviewEditing: false, recipients: [], portalSecs: 0,
+  error: null, segments: [], mom: null, reviewContext: null, edits: {}, reviewEditing: false, approvalLocked: false, recipients: [], deliveredRecipientCount: 0, portalSecs: 0,
   portalOpenedAt: openedAt, outcome: null, exported: null, toast: null,
 });
 
@@ -52,12 +53,12 @@ type Act =
   | { type: 'segments'; segments: Segment[] }
   | { type: 'ready'; mom: Mom; segments: Segment[]; reviewContext: ReviewContextResponse }
   | { type: 'failed'; error: string }
-  | { type: 'resolve'; id: string; value: string }
-  | { type: 'edits'; edits: Edits; autoResolve: string[] }
+  | { type: 'edits'; edits: Edits }
   | { type: 'reviewEditing'; editing: boolean }
+  | { type: 'approvalLocked' }
   | { type: 'recipients'; recipients: Person[] }
-  | { type: 'done'; outcome: Outcome; exported: Mom | null; clickedAt?: number }
-  | { type: 'restored'; jobId: string; exported: Mom; reviewContext: ReviewContextResponse | null; elapsedSecs: number }
+  | { type: 'done'; outcome: Outcome; exported: Mom | null; deliveredRecipientCount?: number; clickedAt?: number }
+  | { type: 'restored'; jobId: string; exported: Mom; reviewContext: ReviewContextResponse | null; elapsedSecs: number; deliveredRecipientCount: number }
   | { type: 'toast'; msg: string | null }
   | { type: 'reset' };
 
@@ -70,26 +71,19 @@ function reducer(s: State, a: Act): State {
     case 'job': return { ...s, job: a.job, seen: s.seen[a.job.status] ? s.seen : { ...s.seen, [a.job.status]: Date.now() } };
     case 'segments': return { ...s, segments: a.segments };
     case 'ready': {
-      return { ...s, screen: 'review', mom: a.mom, segments: a.segments, reviewContext: a.reviewContext, readyAt: Date.now(), res: {}, edits: {}, recipients: [] };
+      return { ...s, screen: 'review', mom: a.mom, segments: a.segments, reviewContext: a.reviewContext, readyAt: Date.now(), edits: {}, approvalLocked: false, recipients: [] };
     }
     case 'failed': return { ...s, screen: 'failed', error: a.error };
-    case 'resolve': return { ...s, res: { ...s.res, [a.id]: a.value } };
-    case 'edits': {
-      const res = { ...s.res };
-      a.autoResolve.forEach((id) => { if (!(id in res)) res[id] = EDITED; });
-      return { ...s, edits: a.edits, res };
-    }
+    case 'edits': return { ...s, edits: a.edits };
     case 'reviewEditing': return { ...s, reviewEditing: a.editing };
+    case 'approvalLocked': return { ...s, reviewEditing: false, approvalLocked: true };
     case 'recipients': return { ...s, recipients: a.recipients };
-    case 'done': return { ...s, screen: 'done', outcome: a.outcome, exported: a.exported, portalSecs: a.clickedAt ? Math.max(0, Math.round((a.clickedAt - s.portalOpenedAt) / 1000)) : 0 };
-    case 'restored': return { ...s, screen: 'done', jobId: a.jobId, outcome: 'download', exported: a.exported, reviewContext: a.reviewContext, portalSecs: a.elapsedSecs };
+    case 'done': return { ...s, screen: 'done', outcome: a.outcome, exported: a.exported, deliveredRecipientCount: a.deliveredRecipientCount ?? 0, portalSecs: a.clickedAt ? Math.max(0, Math.round((a.clickedAt - s.portalOpenedAt) / 1000)) : 0 };
+    case 'restored': return { ...s, screen: 'done', jobId: a.jobId, outcome: a.deliveredRecipientCount ? 'sent' : 'download', exported: a.exported, reviewContext: a.reviewContext, deliveredRecipientCount: a.deliveredRecipientCount, portalSecs: a.elapsedSecs };
     case 'toast': return { ...s, toast: a.msg };
     case 'reset': return { ...initial(s.lang, Date.now()), serverOnline: s.serverOnline };
   }
 }
-
-/** Resolution value used when the doctor rewrote the flagged sentence by hand in Edit mode. */
-export const EDITED = '__edited__';
 
 const LANG_KEY = 'smom-lang';
 const savedLang = (): LangCode => {
@@ -112,14 +106,11 @@ export function applyEdits(mom: Mom, edits: Edits): Mom {
 interface Ctx {
   s: State;
   l: Dict;
-  issues: Issue[];
-  left: number;
   /** MoM with edits applied (what the doctor sees). */
   view: Mom | null;
   setLang(lang: LangCode): void;
   upload(file: Blob, name: string): Promise<void>;
   retry(): Promise<void>;
-  resolve(id: string, value: string): void;
   saveEdits(edits: Edits): void;
   setReviewEditing(editing: boolean): void;
   setRecipients(p: Person[]): void;
@@ -168,12 +159,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const jobId = new URLSearchParams(location.search).get('approved');
     if (!jobId) return;
     let alive = true;
-    Promise.all([api.getApprovedMom(jobId), api.getReviewContext(jobId).catch(() => null)])
-      .then(([approved, reviewContext]) => {
+    Promise.all([api.getApprovedMom(jobId), api.getReviewContext(jobId).catch(() => null), api.getJob(jobId)])
+      .then(([approved, reviewContext, job]) => {
         if (!alive) return;
+        if (job.status !== 'COMPLETED') throw new Error('Approval delivery is not complete.');
         let elapsedSecs = 0;
         try { elapsedSecs = Number(sessionStorage.getItem(`smom-elapsed-${jobId}`)) || 0; } catch { /* private mode */ }
-        dispatch({ type: 'restored', jobId, exported: parseMom(approved.document), reviewContext, elapsedSecs });
+        dispatch({ type: 'restored', jobId, exported: parseMom(approved.document), reviewContext, elapsedSecs, deliveredRecipientCount: approved.recipients.length });
       })
       .catch(() => { if (alive) toast('Could not load the approved minutes.'); });
     return () => { alive = false; };
@@ -233,12 +225,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => { alive = false; window.clearTimeout(timer); };
   }, [s.screen, s.jobId]);
 
-  const issues = useMemo(() => (s.mom ? collectIssues(s.mom) : []), [s.mom]);
   const view = useMemo(() => (s.mom ? applyEdits(s.mom, s.edits) : null), [s.mom, s.edits]);
-  const left = blockingLeft(issues, s.res);
 
   const ctx: Ctx = {
-    s, l, issues, left, view,
+    s, l, view,
     setLang: (lang) => dispatch({ type: 'lang', lang }),
     go: (screen) => dispatch({ type: 'screen', screen }),
     toast,
@@ -251,28 +241,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await api.retryJob(s.jobId);
       dispatch({ type: 'screen', screen: 'processing' });
     },
-    resolve: (id, value) => { dispatch({ type: 'resolve', id, value }); toast(l.ed_toast); },
     saveEdits(edits) {
-      // A flagged finding whose text was rewritten by hand no longer contains the red value → treat as resolved.
-      const auto = issues.filter((i) => i.id.startsWith('findings.') && edits[`findings.${i.id.split('.')[1]}.text`] !== undefined && !edits[`findings.${i.id.split('.')[1]}.text`].includes(i.proposed)).map((i) => i.id);
-      dispatch({ type: 'edits', edits, autoResolve: auto });
+      dispatch({ type: 'edits', edits });
       toast(l.ed_toast);
     },
     setReviewEditing: (editing) => dispatch({ type: 'reviewEditing', editing }),
     setRecipients: (recipients) => dispatch({ type: 'recipients', recipients }),
     async exportMom() {
-      if (!s.jobId || !view || left || s.reviewEditing) return;
+      if (!s.jobId || !view || s.reviewEditing) return;
       const clickedAt = Date.now();
-      const reviewed = applyResolutions(view, issues, Object.fromEntries(Object.entries(s.res).filter(([, v]) => v !== EDITED)));
       try {
-        const approved = await api.approveMom(s.jobId, reviewed, s.recipients.map((p) => p.email));
+        const approved = await api.approveMom(s.jobId, view, s.recipients.map((p) => p.email));
         const elapsedSecs = Math.max(0, Math.round((clickedAt - s.portalOpenedAt) / 1000));
         try {
           sessionStorage.setItem(`smom-elapsed-${s.jobId}`, String(elapsedSecs));
           history.replaceState(null, '', `?approved=${encodeURIComponent(s.jobId)}`);
         } catch { /* storage and history are optional for this session */ }
-        dispatch({ type: 'done', outcome: 'download', exported: parseMom(approved.document), clickedAt });
+        if (approved.skippedRecipients.length) toast(l.rc_skipped(approved.skippedRecipients.length));
+        dispatch({ type: 'done', outcome: approved.recipients.length ? 'sent' : 'download', exported: parseMom(approved.document), deliveredRecipientCount: approved.recipients.length, clickedAt });
       } catch (e) {
+        if (e instanceof ApiError && e.code === 'LOCAL_SMTP_FAILED') dispatch({ type: 'approvalLocked' });
         toast(e instanceof Error ? e.message : 'Approval failed. Please try again.');
       }
     },

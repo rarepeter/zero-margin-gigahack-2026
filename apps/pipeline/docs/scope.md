@@ -1,7 +1,7 @@
 # Pipeline scope
 
 Status: accepted MVP boundary  
-Last updated: 26 September 2026
+Last updated: 27 September 2026
 
 ## In scope
 
@@ -19,9 +19,9 @@ Last updated: 26 September 2026
   UTF-8 plain-text input for the MoM service.
 - Validation and persistence of a draft MoM JSON document.
 - Persistence of compact review-context metadata when the draft becomes ready.
-- Local email notification to the configured submitting author when the review-ready draft is durably available.
-- A local recipient-directory lookup boundary that supports surname-based autocomplete in the portal.
-- Local delivery of the approved MoM to the recipients selected by the author, using an approved sending identity for that author.
+- A local demo recipient list in the portal, with backend allowlist enforcement.
+- Local delivery of the approved MoM to accepted recipients selected by the
+  reviewer, using the stored and server-authorized submitter identity.
 - Separate read endpoints for job status, review context, structured transcript,
   and draft MoM artifacts.
 - Configurable local ML endpoint URLs, ports, polling intervals, and timeouts.
@@ -37,10 +37,12 @@ Last updated: 26 September 2026
 
 ## Pipeline completion boundary
 
-The processing stage is complete when the pipeline has persisted and exposed a
-review-ready draft MoM JSON artifact. The current no-recipient flow is complete
-when the portal persists the approved MoM; no email is sent. Local notification
-and recipient delivery remain separate future work.
+The processing stage is review-ready when the pipeline has persisted and
+exposed a draft MoM JSON artifact. The approval stage uses one contract with an
+optional recipient list. It completes without SMTP when no addresses survive
+soft validation, or only after local SMTP accepts delivery when at least one
+address survives. SMTP failure preserves the immutable approved snapshot for an
+identical-request retry.
 
 The frontend may display and edit that draft and may create ODF or DOCX files.
 Those editing and export functions remain frontend responsibilities, while the
@@ -69,9 +71,10 @@ pipeline/backend owns local notification and delivery.
 
 ## Deferred decisions
 
-- The precise local mail adapter, delivery-status contract, and retry policy.
-- The internal recipient-directory source and privacy/authorization policy.
-- The approved sender-identity mechanism (authorized send-as or delegated sending).
+- Replacing the frontend's static local demo directory with an internal
+  directory service and defining its privacy/authorization policy.
+- Replacing the fixed demo submitter authorization check with institutional
+  authentication and send-as/delegation policy.
 - Whether the final application is run directly or packaged in containers.
 - Final ODF/DOCX generation approach in the frontend workstream.
 - Additional meeting categories beyond clinical, financial, administrative,

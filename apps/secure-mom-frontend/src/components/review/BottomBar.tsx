@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../state/store';
 import { Icon } from '../ui/Icon';
+import { RecipientPicker } from './RecipientPicker';
 
 function DiscardConfirm({ onCancel }: { onCancel: () => void }) {
   const { l, discard } = useApp();
@@ -16,9 +17,9 @@ function DiscardConfirm({ onCancel }: { onCancel: () => void }) {
   );
 }
 
-/** Fixed bottom bar: what's blocking export / recipients, Discard, Export (disabled while blocking red words remain). */
+/** Fixed bottom bar: recipients, Discard, and approval/export controls. */
 export function BottomBar() {
-  const { s, l, left, exportMom } = useApp();
+  const { s, l, exportMom } = useApp();
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const discardBtn = useRef<HTMLButtonElement>(null);
@@ -27,15 +28,18 @@ export function BottomBar() {
   }
   return (
     <div className="bar2">
-      <div className="to">{s.reviewEditing ? l.ed_save : left ? <span className="need">{l.exp_need(left)}</span> : l.dl_s}</div>
+      <div className="to">{s.reviewEditing ? l.ed_save : <RecipientPicker />}</div>
       <button ref={discardBtn} className="btn btn-ghost" type="button" onClick={() => setConfirm(true)}>{l.discard}</button>
       <button
         className="btn btn-export"
         type="button"
-        disabled={left > 0 || s.reviewEditing || busy}
+        disabled={s.reviewEditing || busy}
         onClick={async () => { setBusy(true); try { await exportMom(); } finally { setBusy(false); } }}
       >
-        <Icon name="down" />{busy ? l.exporting : l.exp}
+        <Icon name={s.recipients.length ? 'send' : 'down'} />
+        {busy
+          ? (s.recipients.length ? l.sending : l.approving)
+          : (s.recipients.length ? l.approve_send : l.approve_download)}
       </button>
     </div>
   );

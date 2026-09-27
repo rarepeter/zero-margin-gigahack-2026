@@ -43,17 +43,33 @@
             "title": "Jobid",
             "type": "string"
           },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recipients",
+            "type": "array"
+          },
           "schemaVersion": {
             "const": 1,
             "title": "Schemaversion",
             "type": "integer"
+          },
+          "skippedRecipients": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skippedrecipients",
+            "type": "array"
           }
         },
         "required": [
           "schemaVersion",
           "jobId",
           "approvedAt",
-          "document"
+          "document",
+          "recipients",
+          "skippedRecipients"
         ],
         "title": "ApprovedMom",
         "type": "object"
@@ -2186,9 +2202,19 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Gateway"
           }
         },
-        "summary": "Persist an approved MoM without email delivery"
+        "summary": "Approve a MoM and optionally deliver it through local SMTP"
       }
     },
     "/api/v1/jobs/{job_id}/approved-mom": {

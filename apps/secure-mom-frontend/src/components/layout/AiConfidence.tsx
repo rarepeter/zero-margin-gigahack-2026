@@ -12,24 +12,16 @@ function Ring({ r, p, cls }: { r: number; p: number; cls: string }) {
   );
 }
 
-/** Sidebar card: transcript/summary confidence rings + shortcut to the first red word. */
+/** Sidebar card: transcript and summary confidence, without review suggestions. */
 export function AiConfidence() {
-  const { s, l, left } = useApp();
-  const verified = left === 0;
+  const { s, l } = useApp();
   const quality = s.reviewContext?.quality;
   const tx = quality?.transcriptConfidence == null ? null : Math.round(quality.transcriptConfidence * 100);
   const sm = quality?.momConfidence == null ? null : Math.round(quality.momConfidence * 100);
   const avg = tx !== null && sm !== null ? Math.round((tx + sm) / 2) : null;
 
-  const goFix = () => {
-    const el = document.querySelector<HTMLElement>('.fix');
-    if (!el) return;
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    window.setTimeout(() => el.click(), 350);
-  };
-
   return (
-    <div className={`aic${verified ? ' ver' : ''}`} title={l.cf_note}>
+    <div className="aic">
       <div className="aic-h"><Icon name="spark" /><span>{l.cf_t}</span></div>
       {tx !== null && sm !== null && (
         <div className="aic-b">
@@ -40,20 +32,15 @@ export function AiConfidence() {
                 <linearGradient id="gS" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#FFD166" /><stop offset="1" stopColor="#FF7A59" /></linearGradient>
               </defs>
               <Ring r={38} p={tx} cls="r-t" />
-              <Ring r={28} p={sm} cls={verified ? 'r-t' : 'r-s'} />
+              <Ring r={28} p={sm} cls="r-t" />
             </svg>
-            <div className="aic-c">{verified ? <Icon name="check" /> : <b>{avg}<small>%</small></b>}</div>
+            <div className="aic-c"><b>{avg}<small>%</small></b></div>
           </div>
           <ul className="aic-l">
             <li><i className="d d-t" /><span>{l.cf_tx}</span><b>{tx}%</b></li>
-            <li><i className={`d ${verified ? 'd-t' : 'd-s'}`} /><span>{l.cf_sum}</span><b>{sm}%</b></li>
+            <li><i className="d d-t" /><span>{l.cf_sum}</span><b>{sm}%</b></li>
           </ul>
         </div>
-      )}
-      {left ? (
-        <button type="button" className="aic-go" onClick={goFix}><Icon name="alert" /><span>{l.st_rev(left)}</span><em>→</em></button>
-      ) : (
-        <div className="aic-ok"><Icon name="check" /><span>{l.cf_ver}</span></div>
       )}
     </div>
   );

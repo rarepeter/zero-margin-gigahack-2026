@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
@@ -17,14 +18,18 @@ from pydantic import ValidationError
 from .config import get_settings
 from .job_store import InvalidJobStateError, JobNotFoundError, JobStore
 from .logging_config import configure_logging
+from .mail_adapter import LocalMailAdapter, MailAdapterError, make_local_mail_adapter
+from .mom_email import compose_approved_mom_email
 from .models import (
     ApprovalRequest,
     ApprovedMom,
     ArtifactLink,
     CreateJobResponse,
+    DeliveryResult,
     ErrorDetail,
     ErrorEnvelope,
     JobArtifacts,
+    JobError,
     JobState,
     JobStatus,
     JobStatusResponse,
@@ -49,9 +54,14 @@ from .models import (
 settings = get_settings()
 logger = configure_logging(settings.log_file)
 job_store = JobStore(settings.storage_root)
+mail_adapter: LocalMailAdapter = make_local_mail_adapter(settings)
 
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
+LOCAL_EMAIL_PATTERN = re.compile(
+    r"[a-z0-9][a-z0-9._%+\-]*@[a-z0-9][a-z0-9.\-]*",
+    re.ASCII,
+)
 MAX_TRANSCRIPTION_BYTES = settings.transcription_max_bytes
 MAX_MOM_BYTES = settings.mom_max_bytes
 ALLOWED_AUDIO_EXTENSIONS = frozenset(
@@ -80,6 +90,42 @@ def _error(status_code: int, code: str, message: str, retryable: bool) -> JSONRe
         status_code=status_code,
         content=envelope.model_dump(mode="json", by_alias=True),
     )
+
+
+def _partition_recipients(recipients: list[str]) -> tuple[list[str], list[str]]:
+    """Keep permitted local addresses and softly skip everything else."""
+
+    accepted: list[str] = []
+    skipped: list[str] = []
+    seen: set[str] = set()
+    allowed = set(settings.mail_allowed_recipient_domains)
+    for original in recipients:
+        candidate = original.strip().lower()
+        local, separator, domain = candidate.rpartition("@")
+        if (
+            not separator
+            or not local
+            or not domain
+            or LOCAL_EMAIL_PATTERN.fullmatch(candidate) is None
+            or domain not in allowed
+        ):
+            skipped.append(original)
+            continue
+        if candidate not in seen:
+            accepted.append(candidate)
+            seen.add(candidate)
+    return accepted, skipped
+
+
+def _json_bytes(model: ApprovedMom | DeliveryResult) -> bytes:
+    return (
+        json.dumps(
+            model.model_dump(mode="json", by_alias=True),
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 def _safe_extension(filename: str | None) -> str | None:
@@ -960,80 +1006,218 @@ def get_review_context(job_id: str) -> ReviewContextResponse | JSONResponse:
     responses={
         404: {"model": ErrorEnvelope},
         409: {"model": ErrorEnvelope},
+        502: {"model": ErrorEnvelope},
         500: {"model": ErrorEnvelope},
     },
-    summary="Persist an approved MoM without email delivery",
+    summary="Approve a MoM and optionally deliver it through local SMTP",
 )
 def approve_mom(job_id: str, request: ApprovalRequest) -> ApprovedMom | JSONResponse:
-    if request.recipients:
-        return _error(
-            409,
-            "DELIVERY_NOT_AVAILABLE",
-            "Recipient delivery is not available in this flow.",
-            False,
-        )
     try:
         with job_store.locked_job(job_id) as directory:
             state_model = job_store.read_state(job_id)
+            recipients, skipped_recipients = _partition_recipients(request.recipients)
+            submitter = state_model.submitted_by
+            if recipients and not (
+                submitter
+                and submitter.user_id == settings.demo_submitter_user_id
+                and submitter.email.lower() == settings.demo_submitter_email.lower()
+            ):
+                return _error(
+                    409,
+                    "SENDER_NOT_AUTHORIZED",
+                    "The stored submitting-author identity is not authorized for local delivery.",
+                    False,
+                )
             existing = state_model.artifacts.approved_mom
             if existing is not None:
                 approved = ApprovedMom.model_validate_json(
                     job_store.read_artifact_at(directory, existing)
                 )
-                if approved.document != request.document:
+                if (
+                    approved.document != request.document
+                    or approved.recipients != recipients
+                    or approved.skipped_recipients != skipped_recipients
+                ):
                     return _error(
-                        409, "APPROVAL_CONFLICT", "A different MoM is already approved.", False
+                        409,
+                        "APPROVAL_CONFLICT",
+                        "A different MoM or recipient list is already approved.",
+                        False,
                     )
-                return approved
-            if state_model.status != JobStatus.AWAITING_REVIEW:
+                if state_model.status == JobStatus.COMPLETED:
+                    return approved
+                if not (
+                    state_model.status == JobStatus.FAILED
+                    and state_model.stage == "delivery_failed"
+                ):
+                    return _error(
+                        409,
+                        "APPROVAL_NOT_RETRYABLE",
+                        "The existing approval cannot be retried in its current state.",
+                        False,
+                    )
+            elif state_model.status != JobStatus.AWAITING_REVIEW:
                 return _error(
                     409, "NOT_AWAITING_REVIEW", "The job is not ready for approval.", True
                 )
-            transcription_descriptor = state_model.artifacts.transcription_source
-            if transcription_descriptor is None:
-                raise InvalidJobStateError("The transcription artifact is missing")
-            transcription = TranscriptionResult.model_validate_json(
-                job_store.read_artifact_at(directory, transcription_descriptor)
+
+            if existing is None:
+                transcription_descriptor = state_model.artifacts.transcription_source
+                if transcription_descriptor is None:
+                    raise InvalidJobStateError("The transcription artifact is missing")
+                transcription = TranscriptionResult.model_validate_json(
+                    job_store.read_artifact_at(directory, transcription_descriptor)
+                )
+                _validate_mom_evidence(request.document, transcription)
+                approved = ApprovedMom(
+                    schema_version=1,
+                    job_id=job_id,
+                    approved_at=utc_now(),
+                    document=request.document,
+                    recipients=recipients,
+                    skipped_recipients=skipped_recipients,
+                )
+                descriptor = job_store.write_artifact_at(
+                    directory,
+                    relative_path="mom/approved.json",
+                    data=_json_bytes(approved),
+                    media_type="application/json",
+                )
+                state_model = state_model.model_copy(
+                    update={
+                        "updated_at": approved.approved_at,
+                        "artifacts": state_model.artifacts.model_copy(
+                            update={"approved_mom": descriptor}
+                        ),
+                    }
+                )
+                job_store.append_event_at(
+                    directory,
+                    job_id=job_id,
+                    event_type="mom.approved",
+                    producer="pipeline-api",
+                    value={
+                        "sha256": descriptor.sha256,
+                        "recipientCount": len(recipients),
+                        "skippedRecipientCount": len(skipped_recipients),
+                    },
+                )
+
+            if not approved.recipients:
+                completed = state_model.model_copy(
+                    update={
+                        "status": JobStatus.COMPLETED,
+                        "stage": "approved",
+                        "updated_at": utc_now(),
+                        "error": None,
+                    }
+                )
+                job_store.write_state_at(directory, completed)
+                return approved
+
+            sending = state_model.model_copy(
+                update={
+                    "status": JobStatus.AWAITING_REVIEW,
+                    "stage": "delivery_sending",
+                    "updated_at": utc_now(),
+                    "error": None,
+                }
             )
-            _validate_mom_evidence(request.document, transcription)
-            approved = ApprovedMom(
+            job_store.write_state_at(directory, sending)
+            message_id = f"<secure-mom-{job_id}@medpark.test>"
+            attempted_at = utc_now()
+            message = compose_approved_mom_email(
+                approved,
+                sender=submitter.email,
+                message_id=message_id,
+            )
+            try:
+                mail_adapter.send(message)
+            except MailAdapterError as exc:
+                result = DeliveryResult(
+                    schema_version=1,
+                    job_id=job_id,
+                    status="failed",
+                    message_id=message_id,
+                    attempted_at=attempted_at,
+                    recipient_count=len(approved.recipients),
+                    error_code="LOCAL_SMTP_FAILED",
+                )
+                result_descriptor = job_store.write_artifact_at(
+                    directory,
+                    relative_path="delivery/result.json",
+                    data=_json_bytes(result),
+                    media_type="application/json",
+                )
+                failed = sending.model_copy(
+                    update={
+                        "status": JobStatus.FAILED,
+                        "stage": "delivery_failed",
+                        "updated_at": utc_now(),
+                        "artifacts": sending.artifacts.model_copy(
+                            update={"delivery_result": result_descriptor}
+                        ),
+                        "error": JobError(
+                            code="LOCAL_SMTP_FAILED",
+                            message="The approved MoM was saved, but local email delivery failed.",
+                            retryable=exc.retryable,
+                        ),
+                    }
+                )
+                job_store.write_state_at(directory, failed)
+                job_store.append_event_at(
+                    directory,
+                    job_id=job_id,
+                    event_type="delivery.failed",
+                    producer="pipeline-api",
+                    value={
+                        "messageId": message_id,
+                        "recipientCount": len(approved.recipients),
+                        "retryable": exc.retryable,
+                    },
+                )
+                return _error(
+                    502,
+                    "LOCAL_SMTP_FAILED",
+                    "The approved MoM was saved, but local email delivery failed.",
+                    exc.retryable,
+                )
+
+            result = DeliveryResult(
                 schema_version=1,
                 job_id=job_id,
-                approved_at=utc_now(),
-                document=request.document,
+                status="accepted",
+                message_id=message_id,
+                attempted_at=attempted_at,
+                recipient_count=len(approved.recipients),
             )
-            payload = (
-                json.dumps(
-                    approved.model_dump(mode="json", by_alias=True),
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                + "\n"
-            ).encode("utf-8")
-            descriptor = job_store.write_artifact_at(
+            result_descriptor = job_store.write_artifact_at(
                 directory,
-                relative_path="mom/approved.json",
-                data=payload,
+                relative_path="delivery/result.json",
+                data=_json_bytes(result),
                 media_type="application/json",
             )
-            updated = state_model.model_copy(
+            completed = sending.model_copy(
                 update={
                     "status": JobStatus.COMPLETED,
-                    "stage": "approved",
-                    "updated_at": approved.approved_at,
-                    "artifacts": state_model.artifacts.model_copy(
-                        update={"approved_mom": descriptor}
+                    "stage": "delivered",
+                    "updated_at": utc_now(),
+                    "artifacts": sending.artifacts.model_copy(
+                        update={"delivery_result": result_descriptor}
                     ),
                     "error": None,
                 }
             )
-            job_store.write_state_at(directory, updated)
+            job_store.write_state_at(directory, completed)
             job_store.append_event_at(
                 directory,
                 job_id=job_id,
-                event_type="mom.approved",
+                event_type="delivery.accepted",
                 producer="pipeline-api",
-                value={"sha256": descriptor.sha256, "delivery": "none"},
+                value={
+                    "messageId": message_id,
+                    "recipientCount": len(approved.recipients),
+                },
             )
             return approved
     except JobNotFoundError:

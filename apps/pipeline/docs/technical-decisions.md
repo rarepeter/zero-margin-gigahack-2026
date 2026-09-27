@@ -1,6 +1,6 @@
 # Technical decision log
 
-Last updated: 26 September 2026
+Last updated: 27 September 2026
 
 Statuses used here:
 
@@ -36,9 +36,10 @@ Statuses used here:
 | TD-022 | Out of scope | Frontend editing and ODF/DOCX download generation. | These belong to the frontend workstream. |
 | TD-023 | Accepted | Notify the submitting author by local email when a draft is review-ready, then deliver the approved MoM locally to recipients selected through internal-directory autocomplete. | Email remains reliable when staff change physical devices while using remote workstations. No external SMTP, directory, or mail API is permitted at runtime; sending as the author requires an authorized local send-as or delegated-sending mechanism. |
 | TD-024 | Accepted | Validate schema-version-1 MoM review documents in the pipeline. | The existing portal fields are now a typed backend contract; all evidence uses stable transcript segment IDs. |
-| TD-025 | Open | Final public HTTP API contract. | It must add approval, recipient selection, directory lookup, notification status, and local delivery without exposing the submitter email in browser review context. |
+| TD-025 | Provisional | Use the existing `POST /jobs/{jobId}/approve` contract for approval with or without recipients. | The backend branches after soft recipient filtering; no second delivery endpoint or compatibility contract is needed before launch. Directory replacement and authentication remain open. |
 | TD-026 | Open | Exact contracts exposed by the two ML services. | Adapter specifications depend on ML-owner input. |
-| TD-027 | Accepted for current increment | `COMPLETED` means the reviewed MoM was durably approved. | Approval without recipients is valid and needs no special terminal status or email delivery. Future delivery outcome is separate from approval. |
+| TD-027 | Accepted for current increment | `COMPLETED / approved` means approval had no accepted recipients; `COMPLETED / delivered` additionally means local SMTP accepted the message. | Malformed and non-allowlisted addresses are skipped rather than blocking approval. SMTP failure preserves the approval at `FAILED / delivery_failed`, and the identical approval request retries delivery. |
+| TD-043 | Accepted for current increment | The recipient allowlist defaults to `medpark.test`, and all demo identities use that reserved test domain. | It is Mailpit-compatible, clearly non-production, and avoids examples that resemble routable institutional addresses. |
 | TD-028 | Deferred | Rich evidence annotations and a reviewer-resolution protocol. | Stable segment-ID references are validated now; word spans, resolution targets, and recommendation semantics remain deferred. |
 | TD-029 | Deferred | Content-specific logging restrictions. | No strict policy has been agreed; privacy-safe defaults should be revisited before real institutional use. |
 | TD-030 | Deferred | Container packaging and Compose deployment. | Revisit only if direct execution is insufficient. |

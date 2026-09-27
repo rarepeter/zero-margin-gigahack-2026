@@ -1,7 +1,7 @@
 # Pipeline architecture
 
 Status: accepted direction with explicitly open contracts  
-Last updated: 26 September 2026
+Last updated: 27 September 2026
 
 ## System shape
 
@@ -35,14 +35,15 @@ All components run on the same physical MacBook. The ML services are started
 outside the pipeline and configured by local endpoint URL and port. Neither ML
 service calls the other.
 
-After the draft becomes review-ready, the pipeline sends a local email
-notification to the configured submitting author. The portal then lets that
-author edit and approve the draft and select recipients through surname-based
-autocomplete from an internal directory. The backend composes the final message
-from the approved MoM and supported meeting information, and hands it to a
-local mail adapter using the author's authorized institutional sending identity.
-The portal, directory, mail adapter, and all message data remain within the
-local hospital environment.
+After the draft becomes review-ready, the portal lets the reviewer edit and
+approve the draft and optionally select recipients from its local demo
+directory. One approval request carries the edited document and current
+recipient list. The backend softly skips malformed or non-allowlisted
+addresses. With no accepted recipients it persists the approval and performs no
+mail operation. With at least one accepted recipient it composes the final
+message from the approved MoM and supported meeting information and hands it to
+the local SMTP adapter using the stored, authorized submitter identity. The
+portal, mail adapter, and all message data remain within the local environment.
 
 ## Process responsibilities
 
@@ -153,12 +154,14 @@ COMPLETED
 FAILED
 ```
 
-`AWAITING_REVIEW` means the draft MoM JSON is available to the frontend and the
-submitting author has been notified through the local mail adapter.
-`COMPLETED` should be emitted only after the author-approved MoM has been
-accepted for local delivery to the recipients selected through the internal
-directory. The detailed approval, delivery-status, and retry contract remains
-open for the public API.
+`AWAITING_REVIEW` means the draft MoM JSON is available to the frontend. The
+approval request may briefly use `AWAITING_REVIEW / delivery_sending` while a
+local SMTP transaction is in progress. `COMPLETED / approved` means the MoM was
+approved with no accepted recipients, so no email was attempted.
+`COMPLETED / delivered` means the same approved snapshot was accepted by local
+SMTP for at least one recipient. An SMTP failure preserves the approved
+artifact and moves the job to `FAILED / delivery_failed`; the identical
+approval request is the delivery retry boundary.
 
 State updates use a temporary file followed by an atomic rename. Artifacts are
 validated and atomically installed before the state advances. A process restart

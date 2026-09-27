@@ -1,7 +1,7 @@
 # Pipeline artifact specifications
 
 Status: accepted storage direction; individual shapes are provisional  
-Last updated: 26 September 2026
+Last updated: 27 September 2026
 
 ## Job directory
 
@@ -17,6 +17,9 @@ runtime/jobs/<job-id>/
     transcript.txt
   mom/
     draft.json
+    approved.json
+  delivery/
+    result.json
   review/
     context.json
   operations.ndjson
@@ -77,7 +80,7 @@ The state file is pipeline-owned. A provisional shape is:
   "submittedBy": {
     "userId": "sso-user-1842",
     "displayName": "Elena Popescu",
-    "email": "elena.popescu@medpark.md"
+    "email": "elena.popescu@medpark.test"
   },
   "sourceRecording": {
     "originalFileName": "meeting.m4a",
@@ -102,8 +105,12 @@ COMPLETED
 FAILED
 ```
 
-The initial pipeline is expected to stop at `AWAITING_REVIEW`. The role of
-`COMPLETED` remains open.
+The processing flow stops at `AWAITING_REVIEW / review_ready` until a reviewer
+submits approval. Approval with no accepted recipients reaches
+`COMPLETED / approved`; approval with accepted recipients reaches
+`COMPLETED / delivered` only after local SMTP accepts the message. A delivery
+failure is `FAILED / delivery_failed` while the approved artifact remains
+available.
 
 ## Audio artifact
 
@@ -234,11 +241,53 @@ transcript confidence, MoM confidence, and API links for the two large content
 artifacts. It deliberately excludes transcript segments and MoM document
 content.
 
-The persisted artifact retains the submitter email for future local
-notification delivery. The browser-facing response projects that field out.
+The persisted artifact retains the submitter email for authorized local
+delivery. The browser-facing response projects that field out.
 All three confidence values are nullable because no aggregation rule or model
 confidence calibration is assumed. There are no recommendation annotations,
 review-issue counts, or export-blocking fields in this contract.
+
+## Approved MoM and delivery-result artifacts
+
+`mom/approved.json` is the immutable schema-version-1 approval record. It
+contains the reviewed `document`, the server approval timestamp, and both
+recipient outcomes:
+
+```json
+{
+  "schemaVersion": 1,
+  "jobId": "01J...",
+  "approvedAt": "2026-09-27T09:15:00Z",
+  "document": {},
+  "recipients": ["ana.ionescu@medpark.test"],
+  "skippedRecipients": ["outside@example.com", "not-an-email"]
+}
+```
+
+`recipients` contains normalized, de-duplicated addresses whose domains match
+`PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS`. `skippedRecipients` preserves the
+submitted malformed or non-allowlisted values for UI feedback. These fields are
+required: the pre-launch prototype intentionally provides no compatibility
+reader for older approved artifacts.
+
+When delivery is attempted, `delivery/result.json` records metadata but not the
+message body:
+
+```json
+{
+  "schemaVersion": 1,
+  "jobId": "01J...",
+  "status": "accepted",
+  "messageId": "<secure-mom-01J...@medpark.test>",
+  "attemptedAt": "2026-09-27T09:15:01Z",
+  "recipientCount": 1,
+  "errorCode": null
+}
+```
+
+On an SMTP failure, `status` is `failed` and `errorCode` contains only the safe
+adapter error code. Repeating the identical approval request may replace this
+result with a later accepted attempt; it never replaces `mom/approved.json`.
 
 ## Operational events
 
