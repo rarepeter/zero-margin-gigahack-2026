@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from copy import deepcopy
+from datetime import datetime
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -35,12 +36,96 @@ from secure_mom_pipeline.models import (
 )
 from secure_mom_pipeline.text_service import (
     HttpTextService,
-    MOCK_MOM_DOCUMENT,
-    MockTextService,
     TextConnectionError,
     TextProtocolError,
 )
 from secure_mom_pipeline.worker import process_one
+
+
+MOM_FIXTURE = {
+    # A schema-version-1 document citing segment-2..6 of transcription_document.
+    "schemaVersion": 1,
+    "quality": {"momConfidence": 0.86, "confidenceScale": "ZERO_TO_ONE"},
+    "document": {
+        "header": {
+            "subject": "Revizuirea profilaxiei antibiotice perioperatorii",
+            "meeting_type": "medical",
+            "meeting_type_confidence": "high",
+            "date": "2026-09-25",
+            "date_source": "recording",
+            "duration_min": 52,
+            "languages": {"ro": 0.71, "ru": 0.21, "en": 0.08},
+            "participants_mentioned": [
+                {"name": "Participant 1", "role": None, "role_stated": False},
+                {"name": "Participant 2", "role": None, "role_stated": False},
+                {"name": "Participant 3", "role": None, "role_stated": False},
+                {"name": "Participant 4", "role": None, "role_stated": False},
+            ],
+        },
+        "summary": (
+            "A fost analizat momentul administrării profilaxiei antibiotice și "
+            "datele privind infecțiile postoperatorii. Două decizii, trei acțiuni."
+        ),
+        "decisions": [
+            {
+                "id": "D1",
+                "text": "Cefazolină 2 g i.v., cu 30–60 min înainte de incizie, devine prima linie în chirurgia generală electivă.",
+                "status": "decided",
+                "evidence": {"quote": "Deci, решили — cefazolina două grame, 30–60 minute înainte de incizie.", "lang": "mixed", "segment_id": "segment-4", "t": "00:41:12", "speaker": "Participant 1"},
+                "flags": [],
+            },
+            {
+                "id": "D2",
+                "text": "Momentul administrării se înregistrează în lista de verificare, înainte de time-out.",
+                "status": "decided",
+                "evidence": {"quote": "OK, agreed — timpul administrării intră în checklist, înainte de time-out.", "lang": "mixed", "segment_id": "segment-5", "t": "00:44:30", "speaker": "Participant 4"},
+                "flags": [],
+            },
+            {
+                "id": "D3",
+                "text": "Redozare la intervențiile de peste 4 ore, cu avizul farmaciei.",
+                "status": "proposed",
+                "evidence": {"quote": "Poate facem redosing la patru ore? — Да, но надо проверить с фармацией.", "lang": "mixed", "segment_id": "segment-6", "t": "00:46:05", "speaker": "Participant 2"},
+                "flags": [{"type": "decision_status", "reason": "A fost decis sau doar propus?", "blocking": True, "candidates": ["decided", "proposed"]}],
+            },
+        ],
+        "actions": [
+            {
+                "id": "A1", "text": "Actualizarea protocolului de profilaxie", "decision_ids": ["D1"], "owner": "Participant 3",
+                "deadline": {"spoken": "până vineri viitoare", "resolved": "2026-10-02"},
+                "evidence": {"quote": "Protocolul actualizat — până vineri viitoare.", "lang": "ro", "segment_id": "segment-4", "t": "00:43:10", "speaker": "Participant 1"},
+                "flags": [{"type": "deadline", "reason": "„Până vineri viitoare” a fost calculat ca 02.10.2026. Corect?", "blocking": True, "candidates": ["2026-10-02", "2026-10-09"]}],
+            },
+            {
+                "id": "A2", "text": "Instruirea asistentelor din blocul operator", "decision_ids": ["D1", "D2"], "owner": "Participant 4",
+                "deadline": {"spoken": "до первого октября", "resolved": "2026-09-30"},
+                "evidence": {"quote": "Instruirea asistentelor o fac eu, до первого октября.", "lang": "mixed", "segment_id": "segment-5", "t": "00:44:52", "speaker": "Participant 4"},
+                "flags": [],
+            },
+            {
+                "id": "A3", "text": "Extragerea datelor pentru auditul T4", "owner": None,
+                "deadline": {"spoken": None, "resolved": None},
+                "evidence": {"quote": "Datele pentru auditul pe T4 trebuie scoase din sistem… cineva de la statistică.", "lang": "ro", "segment_id": "segment-6", "t": "00:47:03", "speaker": "Participant 1"},
+                "flags": [{"type": "owner", "reason": "Nimeni nu a fost desemnat. Cine răspunde?", "blocking": True, "candidates": ["Participant 2", "Participant 4"]}],
+            },
+        ],
+        "findings": [
+            {
+                "text": "Rata infecțiilor de plagă postoperatorie în T3: 4,2%, față de 2,9% în T2.",
+                "evidence": {"quote": "Patru virgulă doi la sută, față de doi virgulă nouă.", "lang": "ro", "segment_id": "segment-2", "t": "00:12:40", "speaker": "Participant 1"},
+                "flags": [{"type": "number", "reason": "S-a auzit „4,2%” sau „4,7%”?", "blocking": True, "candidates": ["4,2%", "4,7%"]}],
+            },
+            {
+                "text": "Antibioticul este administrat după incizie în 37% din cazuri.",
+                "evidence": {"quote": "в тридцати семи процентах случаев antibioticul se face după incizie", "lang": "mixed", "segment_id": "segment-3", "t": "00:14:05", "speaker": "Participant 4"},
+                "flags": [],
+            },
+        ],
+        "topics": [{"title": "Momentul administrării", "text": "Profilaxia este administrată prea târziu într-o parte semnificativă a cazurilor."}],
+        "risks": [{"text": "Pacienții alergici la beta-lactamine: alternativa nu a fost stabilită.", "category": "clinical", "raised_by": "Participant 2", "evidence": {"quote": "alergia la beta-lactamine trebuie clarificată separat", "lang": "ro", "segment_id": "segment-6", "t": "00:50:18", "speaker": "Participant 2"}}],
+        "open_questions": [{"text": "Schema alternativă pentru alergia la beta-lactamine.", "raised_by": "Participant 2"}],
+    },
+}
 
 
 @pytest.fixture
@@ -124,7 +209,7 @@ def transcription_document(
 def mom_document(
     content: str = "Mock Minutes", confidence: float | None = 0.86
 ) -> bytes:
-    payload = deepcopy(MOCK_MOM_DOCUMENT)
+    payload = deepcopy(MOM_FIXTURE)
     payload["quality"]["momConfidence"] = confidence
     payload["document"]["summary"] = content
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -135,6 +220,7 @@ def dispatch_audio(store: JobStore, job_id: str) -> str:
         store,
         MockAudioService(),
         logging.getLogger("test.dispatch-audio"),
+        RecordingTextService(),
     )
     model_job_id = store.read_state(job_id).model_jobs.audio
     assert model_job_id is not None
@@ -178,16 +264,21 @@ def push_mom(
 class RecordingTextService:
     def __init__(self) -> None:
         self.submissions: list[tuple[str, str, bytes]] = []
+        self.transcriptions: list[tuple[bytes, datetime]] = []
 
     def submit(
         self,
         pipeline_job_id: str,
         text_path: Path,
         idempotency_key: str,
+        *,
+        transcription_path: Path,
+        uploaded_at: datetime,
     ) -> TextSubmission:
         self.submissions.append(
             (pipeline_job_id, idempotency_key, text_path.read_bytes())
         )
+        self.transcriptions.append((transcription_path.read_bytes(), uploaded_at))
         return TextSubmission(model_job_id="text-job-1", status="accepted")
 
 
@@ -204,6 +295,14 @@ class RecordingMailAdapter:
             message_id=message.message_id,
             recipient_count=len(message.recipients),
         )
+
+
+def push_mom_failure(client: TestClient, job_id: str, text_model_job_id: str, body: dict):
+    return client.post(
+        f"/api/v1/integrations/text/jobs/{job_id}/failure",
+        json=body,
+        headers={"X-Text-Model-Job-Id": text_model_job_id},
+    )
 
 
 def test_upload_persists_bytes_state_and_ordered_events(
@@ -335,7 +434,7 @@ def test_worker_dispatches_to_mock_service_and_persists_checkpoint(
     job_id = upload(client, content=b"audio-one").json()["jobId"]
     logger = logging.getLogger("test.worker.success")
 
-    assert process_one(store, MockAudioService(), logger) is True
+    assert process_one(store, MockAudioService(), logger, RecordingTextService()) is True
 
     state = store.read_state(job_id)
     assert state.status == JobStatus.TRANSCRIBING
@@ -361,8 +460,8 @@ def test_waiting_transcription_does_not_block_second_job(
     second = upload(client, content=b"second").json()["jobId"]
     logger = logging.getLogger("test.worker.single")
 
-    assert process_one(store, MockAudioService(), logger) is True
-    assert process_one(store, MockAudioService(), logger) is True
+    assert process_one(store, MockAudioService(), logger, RecordingTextService()) is True
+    assert process_one(store, MockAudioService(), logger, RecordingTextService()) is True
 
     assert store.read_state(first).status == JobStatus.TRANSCRIBING
     assert store.read_state(second).status == JobStatus.TRANSCRIBING
@@ -376,7 +475,10 @@ def test_worker_records_safe_failure_when_audio_is_missing(
     (store.job_directory(job_id) / state.artifacts.audio).unlink()
 
     assert process_one(
-        store, MockAudioService(), logging.getLogger("test.worker.failure")
+        store,
+        MockAudioService(),
+        logging.getLogger("test.worker.failure"),
+        RecordingTextService(),
     )
 
     failed = store.read_state(job_id)
@@ -454,6 +556,7 @@ def test_structured_transcription_is_preserved_and_text_is_dispatched(
     assert text_service.submissions == [
         (job_id, f"{job_id}:mom-generation:1", transcript_text.encode("utf-8"))
     ]
+    assert text_service.transcriptions == [(source, state.created_at)]
     assert client.get(f"/api/v1/jobs/{job_id}").json()["artifacts"] == {
         "transcriptAvailable": True,
         "momAvailable": False,
@@ -587,11 +690,12 @@ def test_text_dispatch_retries_one_transient_connection_failure(
             pipeline_job_id: str,
             text_path: Path,
             idempotency_key: str,
+            **inputs,
         ) -> TextSubmission:
             self.calls += 1
             if self.calls == 1:
                 raise TextConnectionError("temporary")
-            return super().submit(pipeline_job_id, text_path, idempotency_key)
+            return super().submit(pipeline_job_id, text_path, idempotency_key, **inputs)
 
     job_id = upload(client).json()["jobId"]
     audio_model_job_id = dispatch_audio(store, job_id)
@@ -622,13 +726,8 @@ def test_worker_resumes_from_persisted_text_input_checkpoint(
     store: JobStore,
 ) -> None:
     class SimulatedStopTextService:
-        def submit(
-            self,
-            pipeline_job_id: str,
-            text_path: Path,
-            idempotency_key: str,
-        ) -> TextSubmission:
-            del pipeline_job_id, text_path, idempotency_key
+        def submit(self, *args, **kwargs) -> TextSubmission:
+            del args, kwargs
             raise KeyboardInterrupt("simulated process stop")
 
     job_id = upload(client).json()["jobId"]
@@ -660,7 +759,7 @@ def test_worker_resumes_from_persisted_text_input_checkpoint(
     assert service.submissions[0][2] == b"checkpoint"
 
 
-def test_http_text_service_uploads_transcript_as_multipart_txt(tmp_path: Path) -> None:
+def test_http_text_service_uploads_transcript_and_transcription(tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -673,6 +772,8 @@ def test_http_text_service_uploads_transcript_as_multipart_txt(tmp_path: Path) -
 
     text_path = tmp_path / "transcript.txt"
     text_path.write_text("Bună", encoding="utf-8")
+    transcription_path = tmp_path / "source.json"
+    transcription_path.write_bytes(b'{"schemaVersion":1}')
     service = HttpTextService(
         "http://text.local",
         "/jobs",
@@ -680,7 +781,13 @@ def test_http_text_service_uploads_transcript_as_multipart_txt(tmp_path: Path) -
         transport=httpx.MockTransport(handler),
     )
 
-    result = service.submit("pipeline-job", text_path.resolve(), "stable-key")
+    result = service.submit(
+        "pipeline-job",
+        text_path.resolve(),
+        "stable-key",
+        transcription_path=transcription_path.resolve(),
+        uploaded_at=datetime.fromisoformat("2026-09-25T08:00:00+00:00"),
+    )
 
     assert result.model_job_id == "text-http-1"
     headers = captured["headers"]
@@ -693,6 +800,9 @@ def test_http_text_service_uploads_transcript_as_multipart_txt(tmp_path: Path) -
     assert b'name="transcript"; filename="transcript.txt"' in body
     assert b"text/plain; charset=utf-8" in body
     assert "Bună".encode("utf-8") in body
+    assert b'name="transcription"; filename="transcription.json"' in body
+    assert b'{"schemaVersion":1}' in body
+    assert b'name="uploadedAt"\r\n\r\n2026-09-25T08:00:00+00:00' in body
 
 
 def test_job_lock_serializes_mutations(
@@ -778,6 +888,7 @@ def test_http_text_service_maps_rejection_and_invalid_acknowledgement(
 ) -> None:
     text_path = tmp_path / "transcript.txt"
     text_path.write_text("transcript", encoding="utf-8")
+    inputs = {"transcription_path": text_path.resolve(), "uploaded_at": utc_now()}
 
     rejected = HttpTextService(
         "http://text.local",
@@ -786,7 +897,7 @@ def test_http_text_service_maps_rejection_and_invalid_acknowledgement(
         transport=httpx.MockTransport(lambda request: httpx.Response(400)),
     )
     with pytest.raises(TextProtocolError, match="rejected"):
-        rejected.submit("job", text_path.resolve(), "key")
+        rejected.submit("job", text_path.resolve(), "key", **inputs)
 
     invalid = HttpTextService(
         "http://text.local",
@@ -797,7 +908,7 @@ def test_http_text_service_maps_rejection_and_invalid_acknowledgement(
         ),
     )
     with pytest.raises(TextProtocolError, match="invalid acknowledgement"):
-        invalid.submit("job", text_path.resolve(), "key")
+        invalid.submit("job", text_path.resolve(), "key", **inputs)
 
 
 def test_generating_job_does_not_block_next_queued_job(
@@ -1291,64 +1402,21 @@ def test_mom_callback_validates_contract(
     assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
 
 
-def test_mock_text_service_pushes_versioned_mom_callback_after_delay(
-    tmp_path: Path,
-) -> None:
-    received = Event()
-    requests: list[httpx.Request] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        received.set()
-        return httpx.Response(202)
-
-    text_path = tmp_path / "transcript.txt"
-    text_path.write_text("meeting transcript", encoding="utf-8")
-    service = MockTextService(
-        "http://pipeline.local/api/v1/integrations/text/jobs/{job_id}/mom",
-        callback_delay_seconds=0.01,
-        transport=httpx.MockTransport(handler),
-    )
-
-    submission = service.submit("pipeline-job", text_path.resolve(), "key")
-
-    assert received.wait(timeout=1)
-    assert len(requests) == 1
-    request = requests[0]
-    assert request.url.path.endswith("/integrations/text/jobs/pipeline-job/mom")
-    assert request.headers["x-text-model-job-id"] == submission.model_job_id
-    assert request.headers["content-type"] == "application/json"
-    document = json.loads(request.content)
-    assert list(document) == ["schemaVersion", "quality", "document"]
-    assert document == MOCK_MOM_DOCUMENT
-
-    service.ensure_callback("pipeline-job", submission.model_job_id)
-    assert len(requests) == 1
-
-
-def test_in_process_mock_callbacks_complete_without_loopback_network(
+def test_in_process_audio_mock_callback_completes_without_loopback_network(
     client: TestClient,
     store: JobStore,
 ) -> None:
     job_id = upload(client).json()["jobId"]
-    callback_sender = make_in_process_callback_sender(api.app)
     audio_service = MockAudioService(
         "http://unreachable.local/api/v1/integrations/audio/jobs/"
         "{job_id}/transcription",
         callback_delay_seconds=0.02,
-        callback_sender=callback_sender,
+        callback_sender=make_in_process_callback_sender(api.app),
     )
-    text_service = MockTextService(
-        "http://unreachable.local/api/v1/integrations/text/jobs/{job_id}/mom",
-        callback_delay_seconds=0.02,
-        callback_sender=callback_sender,
-    )
+    text_service = RecordingTextService()
 
     assert process_one(
-        store,
-        audio_service,
-        logging.getLogger("test.in-process.audio"),
-        text_service,
+        store, audio_service, logging.getLogger("test.in-process.audio"), text_service
     )
 
     deadline = monotonic() + 2
@@ -1357,17 +1425,48 @@ def test_in_process_mock_callbacks_complete_without_loopback_network(
         sleep(0.01)
 
     assert process_one(
-        store,
-        audio_service,
-        logging.getLogger("test.in-process.text"),
-        text_service,
+        store, audio_service, logging.getLogger("test.in-process.text"), text_service
     )
+    assert store.read_state(job_id).status == JobStatus.GENERATING_MOM
+    assert len(text_service.submissions) == 1
 
-    while store.read_state(job_id).status != JobStatus.AWAITING_REVIEW:
-        assert monotonic() < deadline
-        sleep(0.01)
 
-    state = store.read_state(job_id)
-    assert state.stage == "review_ready"
-    assert state.artifacts.mom_output is not None
-    assert state.artifacts.review_context is not None
+def test_mom_failure_callback_fails_the_job_idempotently(
+    client: TestClient,
+    store: JobStore,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_model_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client, job_id, audio_model_job_id, transcription_document(job_id)
+    ).status_code == 202
+    assert process_one(
+        store, MockAudioService(), logging.getLogger("test.mom-failure"), RecordingTextService()
+    )
+    failure = {
+        "code": "INVALID_MODEL_OUTPUT",
+        "message": "The local language model returned minutes in an invalid structure.",
+        "retryable": True,
+    }
+
+    wrong_model = push_mom_failure(client, job_id, "wrong", failure)
+    received = push_mom_failure(client, job_id, "text-job-1", failure)
+    replay = push_mom_failure(client, job_id, "text-job-1", failure)
+    late_mom = push_mom(client, job_id, "text-job-1", mom_document())
+
+    assert wrong_model.status_code == 409
+    assert wrong_model.json()["error"]["code"] == "MOM_CORRELATION_MISMATCH"
+    assert received.status_code == 202
+    assert received.json() == {
+        "jobId": job_id,
+        "status": "FAILED",
+        "stage": "text_processing",
+        "replayed": False,
+    }
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+    assert late_mom.status_code == 409
+    job = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert job["status"] == "FAILED"
+    assert job["error"] == failure
+    assert store.read_events(job_id)[-1].event_type == "mom.generation.failed"

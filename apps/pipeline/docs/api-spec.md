@@ -120,6 +120,16 @@ An identical replay returns `200`; a conflicting body, mismatched model job ID,
 or wrong job state returns `409`. Invalid JSON returns `400`, an unsupported
 media type returns `415`, and an oversized document returns `413`.
 
+### `POST /api/v1/integrations/text/jobs/{jobId}/failure`
+
+Local integration endpoint used by the text/MoM service when it cannot produce
+a draft. The JSON body is `{"code": "GENERATION_FAILED", "message": "…",
+"retryable": true}`, correlated by `X-Text-Model-Job-Id`. The message is shown
+in the portal and must not contain meeting content. The job becomes `FAILED`
+at stage `text_processing` with that error and returns `202`. An identical
+replay returns `200`; a mismatched model job ID or a job that is no longer
+generating returns `409`.
+
 ### `GET /api/v1/jobs/{jobId}/transcript`
 
 Return the separately persisted schema-version-1 transcription JSON result. This keeps

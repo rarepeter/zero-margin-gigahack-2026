@@ -324,6 +324,11 @@ MeetingType = Literal[
     "other",
 ]
 FlagType = Literal["number", "decision_status", "owner", "deadline", "term"]
+MeetingTypeConfidence = Literal["high", "medium", "low"]
+DecisionStatus = Literal["decided", "proposed", "revoked"]
+RiskCategory = Literal[
+    "clinical", "safety", "technical", "regulatory", "data_quality", "operational"
+]
 
 
 class MomEvidence(ContractModel):
@@ -355,7 +360,7 @@ class MomParticipant(ContractModel):
 class MomHeader(ContractModel):
     subject: str = Field(min_length=1, max_length=120)
     meeting_type: MeetingType
-    meeting_type_confidence: Literal["high", "medium", "low"]
+    meeting_type_confidence: MeetingTypeConfidence
     date: date
     date_source: Literal["recording", "upload"]
     duration_min: int | None = Field(default=None, ge=0)
@@ -367,7 +372,7 @@ class MomHeader(ContractModel):
 class MomDecision(ContractModel):
     id: str = Field(pattern=r"^D\d+$")
     text: str = Field(min_length=1)
-    status: Literal["decided", "proposed", "revoked"]
+    status: DecisionStatus
     revised_in_meeting: bool | None = None
     evidence: MomEvidence
     flags: list[MomFlag]
@@ -402,9 +407,7 @@ class MomTopic(ContractModel):
 
 class MomRisk(ContractModel):
     text: str = Field(min_length=1)
-    category: Literal[
-        "clinical", "safety", "technical", "regulatory", "data_quality", "operational"
-    ] | None = None
+    category: RiskCategory | None = None
     raised_by: str | None = None
     evidence: MomEvidence | None = None
 
@@ -587,6 +590,18 @@ class TranscriptionReceipt(PipelineModel):
     status: JobStatus
     stage: str
     replayed: bool
+
+
+class MomFailure(ContractModel):
+    """Reported by the text service when it cannot produce a draft MoM.
+
+    The message is shown to the portal user, so it must not contain meeting
+    content.
+    """
+
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$", max_length=64)
+    message: str = Field(min_length=1, max_length=300)
+    retryable: bool
 
 
 class MomReceipt(PipelineModel):

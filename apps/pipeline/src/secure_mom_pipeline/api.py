@@ -37,6 +37,7 @@ from .models import (
     JobStatusResponse,
     MeetingMetadata,
     MomDocument,
+    MomFailure,
     MomResult,
     MomReceipt,
     ParticipantAssignment,
@@ -913,6 +914,111 @@ async def receive_mom(
         job_id=job_id,
         status=review_state.status,
         stage=review_state.stage,
+        replayed=False,
+    )
+
+
+@app.post(
+    f"{settings.api_prefix}{settings.routes.mom_failure}",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=MomReceipt,
+    responses={
+        200: {"model": MomReceipt},
+        404: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope},
+        500: {"model": ErrorEnvelope},
+    },
+    summary="Record that the text service could not produce a draft MoM",
+)
+def receive_mom_failure(
+    job_id: str,
+    failure: MomFailure,
+    text_model_job_id: Annotated[
+        str,
+        Header(alias="X-Text-Model-Job-Id", min_length=1),
+    ],
+) -> MomReceipt | JSONResponse:
+    try:
+        with job_store.locked_job(job_id) as directory:
+            state_model = job_store.read_state(job_id)
+            if state_model.model_jobs.text != text_model_job_id:
+                return _error(
+                    status.HTTP_409_CONFLICT,
+                    "MOM_CORRELATION_MISMATCH",
+                    "The failure does not match the active text model job.",
+                    True,
+                )
+            reported = JobError(
+                code=failure.code,
+                message=failure.message,
+                retryable=failure.retryable,
+            )
+            if state_model.status == JobStatus.FAILED and state_model.error == reported:
+                receipt = MomReceipt(
+                    job_id=job_id,
+                    status=state_model.status,
+                    stage=state_model.stage,
+                    replayed=True,
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content=receipt.model_dump(mode="json", by_alias=True),
+                )
+            if not (
+                state_model.status == JobStatus.GENERATING_MOM
+                and state_model.stage == "text_processing"
+            ):
+                return _error(
+                    status.HTTP_409_CONFLICT,
+                    "MOM_NOT_EXPECTED",
+                    "The job is not waiting for a draft MoM.",
+                    False,
+                )
+            failed_state = state_model.model_copy(
+                update={
+                    "status": JobStatus.FAILED,
+                    "updated_at": utc_now(),
+                    "error": reported,
+                }
+            )
+            job_store.write_state_at(directory, failed_state)
+            job_store.append_event_at(
+                directory,
+                job_id=job_id,
+                event_type="job.state.changed",
+                producer="pipeline-api",
+                value={"status": failed_state.status, "stage": failed_state.stage},
+            )
+            job_store.append_event_at(
+                directory,
+                job_id=job_id,
+                event_type="mom.generation.failed",
+                producer="pipeline-api",
+                value={"errorCode": failure.code, "retryable": failure.retryable},
+            )
+    except JobNotFoundError:
+        return _error(
+            status.HTTP_404_NOT_FOUND,
+            "JOB_NOT_FOUND",
+            "The requested job does not exist.",
+            False,
+        )
+    except (InvalidJobStateError, OSError, ValueError):
+        logger.error("event=mom_failure_persistence_failed job_id=%s", job_id)
+        return _error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "MOM_FAILURE_PERSISTENCE_FAILED",
+            "The generation failure could not be recorded.",
+            True,
+        )
+
+    logger.info(
+        "event=mom_generation_failed job_id=%s error_code=%s", job_id, failure.code
+    )
+    return MomReceipt(
+        job_id=job_id,
+        status=failed_state.status,
+        stage=failed_state.stage,
         replayed=False,
     )
 

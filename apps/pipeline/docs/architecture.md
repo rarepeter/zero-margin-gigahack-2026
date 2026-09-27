@@ -87,8 +87,9 @@ get_result(model_job_id) -> local path or response payload
 
 The implemented audio completion boundary is a pipeline callback that accepts a
 validated schema-version-1 transcription JSON body correlated by pipeline and audio
-model job IDs. The text adapter accepts the derived UTF-8 `.txt` path internally
-and translates it into a multipart upload.
+model job IDs. The text adapter uploads the derived UTF-8 `.txt` file, the
+persisted structured transcription, and the job's upload time as one multipart
+request.
 
 These are internal concepts, not a mandatory REST contract for ML owners.
 
@@ -100,16 +101,20 @@ a persisted mock job still at `audio_processing`. After the callback, the worker
 persists `transcript/source.json`, extracts its complete `transcript.text` into
 `transcript/transcript.txt`, and uploads that file to the text/MoM service.
 
-The development text/MoM mock returns a generated `mock-text-...` job ID and
-sends a deterministic schema-version-1 MoM JSON document with `momConfidence` to the
-pipeline callback after a configurable five-second delay. Worker recovery
-re-schedules this callback for persisted jobs still at `text_processing`.
+The text/MoM stage is the local MoM service in `src/secure_mom_llm`, started
+separately with `uv run mom-llm-service`. It runs Muse Glimmer 30B (Q4_K_M
+GGUF) through a llama.cpp `llama-server` child process, returns a
+`mom-llm-...` job ID at once, and generates in the background. It persists
+each accepted job, so a restarted service resumes unfinished generation and
+resends an undelivered result byte for byte. It pushes the schema-version-1 MoM
+to the MoM callback, or a safe error to the MoM failure callback, which moves
+the job to `FAILED` instead of leaving it waiting.
 
 Both services behave asynchronously: submission acknowledges work without
 holding the request open for inference, and each service pushes completion to a
 correlated pipeline callback.
 
-For reliable local development, the embedded mocks route their delayed requests
+For reliable local development, the embedded audio mock routes its delayed request
 through the same FastAPI callback handlers using an in-process ASGI transport by
 default. This exercises request validation, correlation, persistence, and state
 transitions without requiring a TCP connection between the worker and API
@@ -127,8 +132,8 @@ transferred over local HTTP.
 ```text
 recording file path -> audio service
 transcription JSON (schema 1) -> pipeline callback
-transcript.txt multipart upload -> text service
-MoM JSON (schema 1) -> pipeline callback
+transcript.txt + transcription JSON multipart upload -> text service
+MoM JSON (schema 1), or a failure -> pipeline callback
 ```
 
 At the review-ready checkpoint, the pipeline also persists compact
@@ -174,7 +179,7 @@ atomically renames the complete directory into `jobs/`. The worker scans only
 published job directories.
 
 The worker may have multiple jobs in externally active states. On each pass it
-re-schedules any required mock callbacks, advances the oldest actionable
+re-schedules any required audio mock callbacks, advances the oldest actionable
 transcription or text-dispatch checkpoint, or claims the oldest queued job.
 Per-job locks serialize API and worker mutations; an unrelated job waiting in
 `audio_processing` or `GENERATING_MOM` does not occupy a global processing slot.

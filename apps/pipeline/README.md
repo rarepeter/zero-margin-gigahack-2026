@@ -5,14 +5,15 @@ local Secure MOM processing flow.
 
 The pipeline accepts one meeting recording, stores a filesystem-backed job,
 invokes two independently operated local ML services, and supports human
-approval with optional local email delivery.
+approval with optional local email delivery. This project also contains the
+local MoM service (`src/secure_mom_llm`), which runs the text stage.
 
 ```text
 audio upload
-    -> local audio-processing service
+    -> local audio-processing service (mock for now)
     -> pushed transcription JSON (`schemaVersion: 1`)
     -> derived UTF-8 transcript.txt
-    -> text-processing service
+    -> local MoM service: Muse Glimmer 30B Q4_K_M on llama.cpp
     -> pushed MoM JSON (`schemaVersion: 1`)
     -> review-ready MoM and compact context artifacts
 ```
@@ -29,8 +30,9 @@ passes its path to the replaceable mock audio adapter. The audio-to-text service
 then pushes a structured transcription to a correlated integration endpoint.
 The pipeline validates and preserves `transcript/source.json`, extracts its
 complete transcript text into `transcript/transcript.txt`, and uploads that file
-to the configured text/MoM service. The service pushes its versioned result to a
-second correlated integration endpoint; the pipeline validates and atomically
+with the structured transcription to the local MoM service. The service pushes
+its versioned result to a second correlated integration endpoint, or a failure
+to a third; the pipeline validates and atomically
 stores `mom/draft.json` plus `review/context.json`, then advances to
 `AWAITING_REVIEW / review_ready`.
 
@@ -44,17 +46,15 @@ and callback base URL are configurable with
 `PIPELINE_MOCK_AUDIO_CALLBACK_DELAY_SECONDS` and
 `PIPELINE_MOCK_AUDIO_CALLBACK_BASE_URL`.
 
-The runtime text/MoM mock similarly accepts `transcript.txt`, waits five seconds,
-and pushes a MoM object with `schemaVersion: 1`, `quality`, and
-`document`. Its delay and callback base URL are independently configurable. The
-persisted draft, structured transcript, and compact review context are available
-through separate read endpoints.
+The text stage is real: the local MoM service generates the draft with Muse
+Glimmer 30B on this machine. See [The local MoM service](#the-local-mom-service).
+The persisted draft, structured transcript, and compact review context are
+available through separate read endpoints.
 
-Set `PIPELINE_MOCK_CALLBACK_TRANSPORT=http` to make both mocks use actual HTTP
-callbacks instead. This mode is useful for testing process networking and
-deployment wiring, and requires the worker to reach the configured pipeline API
-callback base URLs. Real independently started ML services always use the HTTP
-callback endpoints; the in-process option applies only to development mocks.
+Set `PIPELINE_MOCK_CALLBACK_TRANSPORT=http` to make the audio mock use an actual
+HTTP callback instead. This mode is useful for testing process networking and
+requires the worker to reach the configured pipeline API callback base URL. The
+MoM service always uses the HTTP callback endpoints.
 
 After review, `POST /api/v1/jobs/{jobId}/approve` persists one immutable
 approved snapshot. With no accepted recipients it completes without email. With
@@ -102,7 +102,7 @@ provisional, deferred, or still open.
 - one local checkpoint mutation at a time; jobs waiting on ML services do not
   block other jobs
 - asynchronous public API and asynchronous ML integrations
-- pushed completion callbacks from both development ML mocks
+- pushed completion callbacks from both ML stages
 - one adapter per ML service; real-service HTTP adapter contracts remain
   isolated from the worker
 - externally started ML services configured by local endpoint URL and port
@@ -125,11 +125,13 @@ The application reads the environment variables shown in `.env.example`.
 Loading a `.env` file automatically is not implemented; export the variables in
 the shell or use a local environment runner.
 
-Start the API and worker in separate shells:
+Start the API, the worker, and the MoM service in separate shells:
 
 ```bash
 uv run pipeline-api
 uv run pipeline-worker
+MOM_LLM_MODEL_PATH=~/Models/meta-models/Muse-Glimmer-30B-GGUF/Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf \
+  uv run mom-llm-service
 ```
 
 The API defaults to `127.0.0.1:8000`. This bind address and port are provisional
@@ -168,6 +170,66 @@ transcription checkpoints under `transcript/`, and an append-only
 `review/context.json`. Approved jobs also contain `mom/approved.json`; delivery
 attempts add `delivery/result.json`. State and artifact installation are atomic.
 
+## The local MoM service
+
+`uv run mom-llm-service` listens on `127.0.0.1:8102`, where the worker's
+`PIPELINE_TEXT_SERVICE_URL` points, and starts llama.cpp's `llama-server` with
+the model at `MOM_LLM_MODEL_PATH`. The model stays loaded between jobs;
+`GET /health` reports `loading`, `ready`, or `failed`. Stopping the service
+stops `llama-server`.
+
+Install the runtime and model while online:
+
+```bash
+brew install llama.cpp   # tested with 0.5.0
+hf download meta-models/Muse-Glimmer-30B-GGUF Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf \
+  --local-dir ~/Models/meta-models/Muse-Glimmer-30B-GGUF
+```
+
+For each job the service:
+
+1. Accepts the pipeline's multipart submission (`transcript.txt`, the
+   structured transcription, and `uploadedAt`), persists it under
+   `MOM_LLM_STORAGE_ROOT`, and answers `202` at once.
+2. Numbers the transcript segments and lets the model reason on its private
+   channel, up to `MOM_LLM_REASONING_MAX_TOKENS`.
+3. Has the model write the draft as JSON under a grammar compiled from
+   `draft.py`, so the output always parses and cites existing segments.
+4. Builds the MoM: segment IDs, timestamps, speakers, meeting date, duration,
+   and language shares come from the transcription, never from the model. A
+   quote the cited segment does not contain is replaced by that segment's
+   text. An action with no owner, or with a spoken deadline the model did not
+   flag, gets a non-blocking flag, so a date the model inferred is marked as
+   needing confirmation.
+5. Pushes the MoM to the pipeline's MoM callback. If generation fails, it
+   pushes a safe error to the failure callback, and the job becomes `FAILED`.
+
+Both phases stream from `llama-server` with no read timeout, so a long meeting
+runs to completion; progress is logged every 30 seconds. Model loading also
+waits as long as the process lives. Logs hold job IDs, token counts, and
+timings, never meeting content. Every setting is listed in `.env.example`
+under `MOM_LLM_`.
+
+The MoM is written in Romanian (`MOM_LLM_OUTPUT_LANGUAGE=ro`); `ru` and `en`
+are also available. There is no confidence calibration yet, so
+`momConfidence` is `null`.
+
+Measured on a MacBook Pro M4 Pro with 48 GB, llama.cpp 0.5.0: the model loads
+in about 11 seconds from disk, prompts are processed at about 120 tokens per
+second, and output is generated at about 14 tokens per second. MoM stage time
+with the default `medium` reasoning, using fictional benchmark transcripts:
+
+| Transcript | Words | Prompt tokens | Reasoning tokens | Answer tokens | MoM stage |
+| --- | --- | --- | --- | --- | --- |
+| Audio-mock demo, 6 segments | 110 | 1,876 | 3,080 | 1,376 | 5.5 min |
+| `clinical-01`, about 9 minutes of speech | 1,348 | 4,259 | 3,170 | 4,029 | 9.2 min |
+| `executive-03`, about 40 minutes of speech | 5,937 | 12,792 | 2,901 | 5,097 | 11.6 min |
+
+Reasoning stays near 3,000 tokens at `medium`, while the answer grows with the
+meeting. `MOM_LLM_REASONING_STRENGTH=low` cuts reasoning to under 1,000 tokens:
+the demo took 2.3 minutes and `clinical-01` 7.8 minutes, with a differently
+structured but still correct draft. The benchmark scored `medium`.
+
 ## Filesystem services
 
 `BinaryFileService` reads and writes unmodified bytes, including audio bytes.
@@ -201,12 +263,14 @@ uv run pytest
 ```
 
 The tests cover upload validation and persistence, callback correlation and
-idempotency, structured-transcript extraction, multipart `.txt` upload, both
-delayed mock callbacks, versioned JSON validation, confidence propagation,
-review-context projection, atomic checkpoints,
-restart recovery, status reads, event ordering, concurrent locking,
-non-blocking scheduling, transient retry, and safe failures.
+idempotency, structured-transcript extraction, the multipart text submission,
+the delayed audio mock callback, versioned JSON validation, confidence
+propagation, review-context projection, atomic checkpoints, restart recovery,
+status reads, event ordering, concurrent locking, non-blocking scheduling,
+transient retry, and safe failures. The MoM service tests run the full
+pipeline round trip with a stand-in for the model, plus evidence checking,
+failure reporting, and byte-identical resends after a restart. They do not
+load the model.
 
 All source dependencies must be declared and installable before the offline
-demo. Model installation and operation remain the responsibility of the ML
-components.
+demo, and the model file must be on disk.
