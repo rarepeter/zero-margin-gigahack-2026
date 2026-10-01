@@ -23,7 +23,9 @@ export function AiConfidence() {
   return (
     <div className="aic">
       <div className="aic-h"><Icon name="spark" /><span>{l.cf_t}</span></div>
-      {tx !== null && sm !== null && (
+      {tx === null || sm === null ? (
+        <p className="aic-wip"><i className="d" />{l.cf_wip}</p>
+      ) : (
         <div className="aic-b">
           <div className="aic-g">
             <svg className="rings anim" width="88" height="88" viewBox="0 0 88 88" aria-hidden="true">

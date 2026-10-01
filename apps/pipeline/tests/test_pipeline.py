@@ -1494,7 +1494,11 @@ def test_approval_softly_skips_external_recipients_and_delivers_locally(
     assert message.sender == "demo@medpark.test"
     assert message.recipients == ("doctor@medpark.test",)
     assert message.message_id == f"<secure-mom-{job_id}@medpark.test>"
-    assert "Mock Minutes" in message.text_body
+    assert request["document"]["summary"] not in message.text_body
+    [attachment] = message.attachments
+    assert attachment.mime_type == "application/pdf"
+    assert attachment.filename == "proces-verbal-2026-09-25.pdf"
+    assert attachment.content.startswith(b"%PDF")
     state = store.read_state(job_id)
     assert state.status == JobStatus.COMPLETED
     assert state.stage == "delivered"
@@ -1584,6 +1588,58 @@ def test_all_disallowed_recipients_are_skipped_without_smtp(
     assert response.json()["skippedRecipients"] == ["outside@example.com"]
     assert mail.messages == []
     assert store.read_state(job_id).stage == "approved"
+
+
+def test_approved_mom_can_be_sent_again_as_pdf(
+    client: TestClient,
+    store: JobStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_id = upload(client).json()["jobId"]
+    audio_job_id = dispatch_audio(store, job_id)
+    assert push_transcription(
+        client, job_id, audio_job_id, transcription_document(job_id)
+    ).status_code == 202
+    assert process_one(
+        store,
+        AcceptingAudioService(),
+        logging.getLogger("test.followup-delivery"),
+        RecordingTextService(),
+    )
+    draft = mom_document()
+    assert push_mom(client, job_id, "text-job-1", draft).status_code == 202
+    mail = RecordingMailAdapter()
+    monkeypatch.setattr(api, "mail_adapter", mail)
+    deliveries = f"/api/v1/jobs/{job_id}/deliveries"
+    send = {"schemaVersion": 1, "recipients": ["a@medpark.test"], "language": "en"}
+
+    assert client.post(deliveries, json=send).status_code == 409
+    approval = {
+        "schemaVersion": 1,
+        "document": json.loads(draft)["document"],
+        "recipients": [],
+    }
+    assert client.post(f"/api/v1/jobs/{job_id}/approve", json=approval).status_code == 200
+
+    first = client.post(deliveries, json=send)
+    second = client.post(
+        deliveries,
+        json={**send, "recipients": ["B@medpark.test", "x@example.com"]},
+    )
+    assert first.status_code == 200, first.text
+    assert second.json()["recipients"] == ["b@medpark.test"]
+    assert second.json()["skippedRecipients"] == ["x@example.com"]
+    assert [message.recipients for message in mail.messages] == [
+        ("a@medpark.test",),
+        ("b@medpark.test",),
+    ]
+    assert mail.messages[0].message_id != mail.messages[1].message_id
+    assert mail.messages[0].attachments[0].filename == "minutes-2026-09-25.pdf"
+    assert store.read_state(job_id).stage == "approved"
+
+    only_external = client.post(deliveries, json={**send, "recipients": ["x@example.com"]})
+    assert only_external.status_code == 422
+    assert len(mail.messages) == 2
 
 
 def test_review_context_preserves_missing_model_confidence(

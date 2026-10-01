@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from time import monotonic
 from typing import Annotated
+from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI, File, Header, Query, Request, UploadFile, status
@@ -21,11 +22,14 @@ from .job_store import InvalidJobStateError, JobNotFoundError, JobStore
 from .logging_config import configure_logging
 from .mail_adapter import LocalMailAdapter, MailAdapterError, make_local_mail_adapter
 from .mom_email import compose_approved_mom_email
+from .mom_pdf import PdfFonts, PdfRenderError
 from .models import (
     ApprovalRequest,
     ApprovedMom,
     ArtifactLink,
     CreateJobResponse,
+    DeliveryReceipt,
+    DeliveryRequest,
     DeliveryResult,
     DirectoryPerson,
     ErrorDetail,
@@ -64,6 +68,7 @@ settings = get_settings()
 logger = configure_logging(settings.log_file)
 job_store = JobStore(settings.storage_root)
 mail_adapter: LocalMailAdapter = make_local_mail_adapter(settings)
+pdf_fonts = PdfFonts(settings.pdf_font_path, settings.pdf_bold_font_path)
 
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
@@ -124,6 +129,17 @@ def _partition_recipients(recipients: list[str]) -> tuple[list[str], list[str]]:
             accepted.append(candidate)
             seen.add(candidate)
     return accepted, skipped
+
+
+def _submitter_can_send(state_model: JobState) -> bool:
+    """Mail leaves only from the fixed demo identity that submitted the job."""
+
+    submitter = state_model.submitted_by
+    return bool(
+        submitter
+        and submitter.user_id == settings.demo_submitter_user_id
+        and submitter.email.lower() == settings.demo_submitter_email.lower()
+    )
 
 
 def _read_participant_assignments(
@@ -1435,12 +1451,7 @@ def approve_mom(job_id: str, request: ApprovalRequest) -> ApprovedMom | JSONResp
         with job_store.locked_job(job_id) as directory:
             state_model = job_store.read_state(job_id)
             recipients, skipped_recipients = _partition_recipients(request.recipients)
-            submitter = state_model.submitted_by
-            if recipients and not (
-                submitter
-                and submitter.user_id == settings.demo_submitter_user_id
-                and submitter.email.lower() == settings.demo_submitter_email.lower()
-            ):
+            if recipients and not _submitter_can_send(state_model):
                 return _error(
                     409,
                     "SENDER_NOT_AUTHORIZED",
@@ -1479,6 +1490,22 @@ def approve_mom(job_id: str, request: ApprovalRequest) -> ApprovedMom | JSONResp
                 return _error(
                     409, "NOT_AWAITING_REVIEW", "The job is not ready for approval.", True
                 )
+
+            # Render before persisting anything so a PDF failure leaves the
+            # job reviewable instead of half-approved.
+            message_id = f"<secure-mom-{job_id}@medpark.test>"
+            message = (
+                compose_approved_mom_email(
+                    request.document,
+                    recipients=recipients,
+                    sender=state_model.submitted_by.email,
+                    message_id=message_id,
+                    language=request.language,
+                    fonts=pdf_fonts,
+                )
+                if recipients
+                else None
+            )
 
             if existing is None:
                 transcription_descriptor = state_model.artifacts.transcription_source
@@ -1522,7 +1549,7 @@ def approve_mom(job_id: str, request: ApprovalRequest) -> ApprovedMom | JSONResp
                     },
                 )
 
-            if not approved.recipients:
+            if message is None:
                 completed = state_model.model_copy(
                     update={
                         "status": JobStatus.COMPLETED,
@@ -1543,13 +1570,7 @@ def approve_mom(job_id: str, request: ApprovalRequest) -> ApprovedMom | JSONResp
                 }
             )
             job_store.write_state_at(directory, sending)
-            message_id = f"<secure-mom-{job_id}@medpark.test>"
             attempted_at = utc_now()
-            message = compose_approved_mom_email(
-                approved,
-                sender=submitter.email,
-                message_id=message_id,
-            )
             try:
                 mail_adapter.send(message)
             except MailAdapterError as exc:
@@ -1641,6 +1662,9 @@ def approve_mom(job_id: str, request: ApprovalRequest) -> ApprovedMom | JSONResp
             return approved
     except JobNotFoundError:
         return _error(404, "JOB_NOT_FOUND", "The requested job does not exist.", False)
+    except PdfRenderError:
+        logger.error("event=mom_pdf_render_failed job_id=%s", job_id)
+        return _error(500, "PDF_RENDER_FAILED", "The MoM PDF could not be rendered.", False)
     except (InvalidJobStateError, ValidationError, OSError):
         logger.error("event=mom_approval_failed job_id=%s", job_id)
         return _error(500, "APPROVAL_FAILED", "The approved MoM could not be saved.", True)
@@ -1679,6 +1703,102 @@ def get_approved_mom(job_id: str) -> ApprovedMom | JSONResponse:
     except (InvalidJobStateError, ValidationError, ValueError, OSError):
         logger.error("event=approved_mom_read_failed job_id=%s", job_id)
         return _error(500, "APPROVED_MOM_INVALID", "The approved MoM could not be read.", False)
+
+
+@app.post(
+    f"{settings.api_prefix}{settings.routes.deliveries}",
+    response_model=DeliveryReceipt,
+    responses={
+        404: {"model": ErrorEnvelope},
+        409: {"model": ErrorEnvelope},
+        422: {"model": ErrorEnvelope},
+        500: {"model": ErrorEnvelope},
+        502: {"model": ErrorEnvelope},
+    },
+    summary="Email an approved MoM as a PDF attachment to more local recipients",
+)
+def deliver_approved_mom(
+    job_id: str, request: DeliveryRequest
+) -> DeliveryReceipt | JSONResponse:
+    """Repeatable after approval; each call sends one new message and changes no job state."""
+
+    try:
+        with job_store.locked_job(job_id) as directory:
+            state_model = job_store.read_state(job_id)
+            descriptor = state_model.artifacts.approved_mom
+            if descriptor is None or state_model.status != JobStatus.COMPLETED:
+                return _error(
+                    409, "APPROVAL_NOT_READY", "Only an approved MoM can be sent.", False
+                )
+            if not _submitter_can_send(state_model):
+                return _error(
+                    409,
+                    "SENDER_NOT_AUTHORIZED",
+                    "The stored submitting-author identity is not authorized for local delivery.",
+                    False,
+                )
+            recipients, skipped_recipients = _partition_recipients(request.recipients)
+            if not recipients:
+                return _error(
+                    422,
+                    "NO_ALLOWED_RECIPIENTS",
+                    "None of the recipients is an allowed local address.",
+                    False,
+                )
+            approved = ApprovedMom.model_validate_json(
+                job_store.read_artifact_at(directory, descriptor)
+            )
+            message_id = f"<secure-mom-{job_id}-{uuid4().hex}@medpark.test>"
+            message = compose_approved_mom_email(
+                approved.document,
+                recipients=recipients,
+                sender=state_model.submitted_by.email,
+                message_id=message_id,
+                language=request.language,
+                fonts=pdf_fonts,
+            )
+            attempted_at = utc_now()
+            event = {
+                "messageId": message_id,
+                "recipientCount": len(recipients),
+                "skippedRecipientCount": len(skipped_recipients),
+            }
+            try:
+                mail_adapter.send(message)
+            except MailAdapterError as exc:
+                job_store.append_event_at(
+                    directory,
+                    job_id=job_id,
+                    event_type="delivery.followup_failed",
+                    producer="pipeline-api",
+                    value={**event, "retryable": exc.retryable},
+                )
+                return _error(
+                    502, "LOCAL_SMTP_FAILED", "Local email delivery failed.", exc.retryable
+                )
+            job_store.append_event_at(
+                directory,
+                job_id=job_id,
+                event_type="delivery.followup_accepted",
+                producer="pipeline-api",
+                value=event,
+            )
+            return DeliveryReceipt(
+                schema_version=1,
+                job_id=job_id,
+                message_id=message_id,
+                attempted_at=attempted_at,
+                recipients=recipients,
+                skipped_recipients=skipped_recipients,
+            )
+    except JobNotFoundError:
+        return _error(404, "JOB_NOT_FOUND", "The requested job does not exist.", False)
+    except PdfRenderError:
+        logger.error("event=mom_pdf_render_failed job_id=%s", job_id)
+        return _error(500, "PDF_RENDER_FAILED", "The MoM PDF could not be rendered.", False)
+    except (InvalidJobStateError, ValidationError, OSError):
+        logger.error("event=mom_delivery_failed job_id=%s", job_id)
+        return _error(500, "DELIVERY_FAILED", "The approved MoM could not be sent.", True)
 
 
 @app.post(

@@ -744,6 +744,10 @@ mark.term{text-decoration-color:var(--accent)}
 @property --ang{syntax:'<angle>';initial-value:0deg;inherits:false}
 @keyframes spinb{to{--ang:360deg}}
 .side .aic-h{color:#9AA8AA}
+.aic-wip{display:flex;align-items:baseline;gap:8px;margin:0;font-size:.78rem;line-height:1.4;color:#5F676D}
+.aic-wip .d{flex:none;width:7px;height:7px;border-radius:50%;background:#E0A82E;transform:translateY(-1px)}
+.side .aic-wip{color:#C9D3D4}
+.side .aic-wip .d{background:#FFB347}
 .side .aic-h svg{color:#00E0D6;filter:drop-shadow(0 0 4px rgba(0,224,214,.8))}
 .side .rings .rt{stroke:rgba(255,255,255,.08)}
 .side .rings .r-t{stroke:url(#gT);filter:drop-shadow(0 0 4px rgba(0,224,214,.7))}
@@ -899,3 +903,9 @@ html{font-size:16px}
   .pbody{padding:0 16px 16px}.tabs{padding:0 16px}
   .trsel{flex-basis:100%}
 }
+
+/* Done screen: email the approved PDF to more people */
+.send-more{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-block:12px 0;padding:12px 12px 12px 18px;background:var(--surface);border-radius:var(--r-lg);box-shadow:var(--shadow)}
+.send-more .to{flex:1 1 280px;text-align:left;font-size:.86rem}
+.send-more .btn{min-height:48px;padding:0 22px;border-radius:8px;font-size:1rem}
+.send-more .btn:disabled{opacity:.45;cursor:not-allowed}

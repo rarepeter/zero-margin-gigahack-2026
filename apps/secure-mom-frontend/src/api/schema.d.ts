@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/audio/jobs/{job_id}/failure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record that the audio service could not produce a transcription */
+        post: operations["receive_transcription_failure_api_v1_integrations_audio_jobs__job_id__failure_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/audio/jobs/{job_id}/transcription": {
         parameters: {
             query?: never;
@@ -134,6 +151,26 @@ export interface paths {
         get: operations["get_approved_mom_api_v1_jobs__job_id__approved_mom_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email an approved MoM as a PDF attachment to more local recipients
+         * @description Repeatable after approval; each call sends one new message and changes no job state.
+         */
+        post: operations["deliver_approved_mom_api_v1_jobs__job_id__deliveries_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -266,6 +303,12 @@ export interface components {
         /** ApprovalRequest */
         ApprovalRequest: {
             document: components["schemas"]["MomDocument"];
+            /**
+             * Language
+             * @default ro
+             * @enum {string}
+             */
+            language: "ro" | "ru" | "en";
             /** Recipients */
             recipients: string[];
             /**
@@ -337,6 +380,46 @@ export interface components {
             /** Stage */
             stage: string;
             status: components["schemas"]["JobStatus"];
+        };
+        /** DeliveryReceipt */
+        DeliveryReceipt: {
+            /**
+             * Attemptedat
+             * Format: date-time
+             */
+            attemptedAt: string;
+            /** Jobid */
+            jobId: string;
+            /** Messageid */
+            messageId: string;
+            /** Recipients */
+            recipients: string[];
+            /**
+             * Schemaversion
+             * @constant
+             */
+            schemaVersion: 1;
+            /** Skippedrecipients */
+            skippedRecipients: string[];
+        };
+        /**
+         * DeliveryRequest
+         * @description Send an already approved MoM to more recipients as a PDF attachment.
+         */
+        DeliveryRequest: {
+            /**
+             * Language
+             * @default ro
+             * @enum {string}
+             */
+            language: "ro" | "ru" | "en";
+            /** Recipients */
+            recipients: string[];
+            /**
+             * Schemaversion
+             * @constant
+             */
+            schemaVersion: 1;
         };
         /** DetectedLanguage */
         DetectedLanguage: {
@@ -510,10 +593,10 @@ export interface components {
         };
         /**
          * MomFailure
-         * @description Reported by the text service when it cannot produce a draft MoM.
+         * @description Reported by an ML service when it cannot produce its artifact.
          *
-         *     The message is shown to the portal user, so it must not contain meeting
-         *     content.
+         *     The speech-to-text and MoM services both send this body. The message is
+         *     shown to the portal user, so it must not contain meeting content.
          */
         MomFailure: {
             /** Code */
@@ -906,6 +989,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receive_transcription_failure_api_v1_integrations_audio_jobs__job_id__failure_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Audio-Model-Job-Id": string;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MomFailure"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptionReceipt"];
+                };
+            };
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptionReceipt"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };
@@ -1421,6 +1577,77 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    deliver_approved_mom_api_v1_jobs__job_id__deliveries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryReceipt"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

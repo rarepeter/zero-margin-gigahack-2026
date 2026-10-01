@@ -3,7 +3,7 @@
 import momExample from './examples/mom.example.json';
 import transcriptExample from './examples/transcript.example.json';
 import { demoDirectoryMatches } from '../data/directory';
-import type { ApprovedMom, JobStatus, JobStatusResponse, MomResult, ParticipantAssignments, ReviewContextResponse, SecureMomApi, TranscriptionResult } from './types';
+import { ApiError, type ApprovedMom, type DeliveryReceipt, type JobStatus, type JobStatusResponse, type MomResult, type ParticipantAssignments, type ReviewContextResponse, type SecureMomApi, type TranscriptionResult } from './types';
 
 /** Simulated pipeline timing (ms from upload). Tweak to slow the demo down. */
 const T_TRANSCRIBING = 400;
@@ -21,6 +21,13 @@ interface MockJob {
 const transcriptFixture = transcriptExample as unknown as TranscriptionResult;
 const jobs = new Map<string, MockJob>();
 const approvals = new Map<string, ApprovedMom>();
+
+const INTERNAL_EMAIL = /^[a-z0-9][a-z0-9._%+\-]*@medpark\.test$/i;
+/** Mirrors the server: keep unique internal addresses, report the rest as skipped. */
+const partition = (recipients: string[]) => ({
+  accepted: [...new Set(recipients.map((email) => email.trim().toLowerCase()).filter((email) => INTERNAL_EMAIL.test(email)))],
+  skipped: recipients.filter((email) => !INTERNAL_EMAIL.test(email.trim())),
+});
 const participantAssignments = new Map<string, ParticipantAssignments>();
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fallbackJob = (): MockJob => ({
@@ -157,8 +164,7 @@ export const mockApi: SecureMomApi = {
     await wait(400);
     const existing = approvals.get(jobId);
     if (existing) return existing;
-    const accepted = [...new Set(recipients.map((email) => email.trim().toLowerCase()).filter((email) => /^[a-z0-9][a-z0-9._%+\-]*@medpark\.test$/i.test(email)))];
-    const skipped = recipients.filter((email) => !/^[a-z0-9][a-z0-9._%+\-]*@medpark\.test$/i.test(email.trim()));
+    const { accepted, skipped } = partition(recipients);
     const approved: ApprovedMom = {
       schemaVersion: 1,
       jobId,
@@ -169,6 +175,21 @@ export const mockApi: SecureMomApi = {
     };
     approvals.set(jobId, approved);
     return approved;
+  },
+  async deliverMom(jobId, recipients) {
+    await wait(400);
+    if (!approvals.has(jobId)) throw new ApiError(409, 'APPROVAL_NOT_READY', 'Only an approved MoM can be sent.');
+    const { accepted, skipped } = partition(recipients);
+    if (!accepted.length) throw new ApiError(422, 'NO_ALLOWED_RECIPIENTS', 'None of the recipients is an allowed local address.');
+    const receipt: DeliveryReceipt = {
+      schemaVersion: 1,
+      jobId,
+      messageId: `<mock-${crypto.randomUUID()}@medpark.test>`,
+      attemptedAt: new Date().toISOString(),
+      recipients: accepted,
+      skippedRecipients: skipped,
+    };
+    return receipt;
   },
   async getApprovedMom(jobId) {
     const approved = approvals.get(jobId);

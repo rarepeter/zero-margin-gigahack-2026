@@ -72,7 +72,12 @@ is navigation, not authorization; authentication remains outside the MVP.
 ## Local mail adapter
 
 The pipeline uses a replaceable standard-library SMTP boundary for approved-MoM
-delivery. It does not call Mailpit's HTTP API. The offline demo defaults are:
+delivery. Approved minutes travel only as a PDF attachment
+(`mom_pdf.py`, fpdf2 with local TrueType fonts); the email body is a short
+localized note. The approval request's optional `language` (`ro`, `ru`, `en`)
+selects the PDF labels. After approval, `POST /api/v1/jobs/<job-id>/deliveries`
+sends the same PDF to more recipients; it is repeatable, filters recipients
+like approval does, and only appends `delivery.followup_*` events. It does not call Mailpit's HTTP API. The offline demo defaults are:
 
 ```text
 PIPELINE_MAIL_HOST=127.0.0.1
@@ -82,6 +87,8 @@ PIPELINE_MAIL_USE_STARTTLS=false
 PIPELINE_MAIL_ALLOWED_RECIPIENT_DOMAINS=medpark.test
 PIPELINE_NOTIFICATION_SENDER=secure-mom@medpark.test
 PIPELINE_NOTIFICATION_MAX_ATTEMPTS=2
+PIPELINE_PDF_FONT_PATH=/System/Library/Fonts/Supplemental/Arial.ttf
+PIPELINE_PDF_BOLD_FONT_PATH=/System/Library/Fonts/Supplemental/Arial Bold.ttf
 ```
 
 The timeout bounds socket connection and SMTP commands. `apps/mailpit` binds
